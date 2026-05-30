@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
-      - /opt/deploy/data/postgres:/var/lib/postgresql/data
+      - /opt/deploy/data/postgres:/var/lib/postgresql
     networks:
       - deploy-network
     deploy:
