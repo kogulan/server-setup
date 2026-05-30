@@ -2,7 +2,6 @@
 
 # =============================================================================
 # OCI Production-Ready Deployment Orchestrator
-# Target: Ubuntu 24.04 Minimal (x86_64 / ARM64)
 # =============================================================================
 
 set -e
@@ -13,40 +12,62 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+DEPLOY_ROOT="/opt/deploy"
+CONFIG_FILE="$DEPLOY_ROOT/.env"
+
 echo -e "${GREEN}Starting OCI Deployment Setup...${NC}"
 
-DEPLOY_ROOT="/opt/deploy"
-sudo mkdir -p $DEPLOY_ROOT/{proxy/conf.d,proxy/certs,db,webserver,automation,storage,data/web_root,data/ftp_storage,data/postgres,data/mariadb,data/n8n,data/activepieces,data/huginn,data/redis,data/nginx,backups,scripts,templates}
-sudo chmod +x $DEPLOY_ROOT/scripts/*.sh || true
-
-# 1. RAM Detection & SWAP Implementation
+# Phase 0: Pre-flight Checks
 # -----------------------------------------------------------------------------
-TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
-echo "Detected Total RAM: ${TOTAL_RAM}MB"
+echo -e "${YELLOW}[Step 0] Pre-flight checks...${NC}"
+sudo mkdir -p $DEPLOY_ROOT/{proxy/conf.d,proxy/certs,db,webserver,automation,storage,data/web_root,data/ftp_storage,data/postgres,data/mariadb,data/n8n,data/activepieces,data/huginn,data/redis,data/nginx,backups,scripts,templates}
 
-if [ "$TOTAL_RAM" -lt 2000 ]; then
-    echo -e "${YELLOW}Low RAM (<2GB). Configuring 4GB Swap and Tiny Redis...${NC}"
-    if [ ! -f /swapfile ]; then
-        sudo fallocate -l 4G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
-        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+for item in "$DEPLOY_ROOT/storage/users.conf" "$DEPLOY_ROOT/storage/passwd" "$CONFIG_FILE"; do
+    if [ -d "$item" ]; then
+        echo "Fixing directory conflict for $item"
+        sudo rm -rf "$item"
+        sudo touch "$item"
     fi
+done
+
+# Phase 1: Load/Save Configuration
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}[Step 1] Loading configuration...${NC}"
+[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE" || sudo touch "$CONFIG_FILE"
+
+if [ -z "$MAIN_DOMAIN" ]; then
+    read -p "Enter your main Domain or IP: " MAIN_DOMAIN
+    echo "MAIN_DOMAIN=$MAIN_DOMAIN" | sudo tee -a "$CONFIG_FILE"
+fi
+if [ -z "$ADMIN_EMAIL" ]; then
+    read -p "Enter Admin email: " ADMIN_EMAIL
+    echo "ADMIN_EMAIL=$ADMIN_EMAIL" | sudo tee -a "$CONFIG_FILE"
+fi
+if [ -z "$ACCESS_CHOICE" ]; then
+    echo "1) Subdomains | 2) Ports"; read -p "Choice: " ACCESS_CHOICE
+    echo "ACCESS_CHOICE=$ACCESS_CHOICE" | sudo tee -a "$CONFIG_FILE"
+fi
+if [ -z "$SSL_CHOICE" ]; then
+    echo "1) Let's Encrypt | 2) Self-Signed | 3) HTTP Only"; read -p "Choice: " SSL_CHOICE
+    echo "SSL_CHOICE=$SSL_CHOICE" | sudo tee -a "$CONFIG_FILE"
+fi
+
+TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
+if [ "$TOTAL_RAM" -lt 2000 ]; then
     DB_LIMIT="512M"; AUTO_LIMIT="512M"; PHP_LIMIT="256M"
     REDIS_CMD="redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru"
+    if [ ! -f /swapfile ]; then
+        sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    fi
 else
-    echo -e "${GREEN}High RAM detected. Configuring standard performance...${NC}"
     DB_LIMIT="2G"; AUTO_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
 fi
 
-sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" $DEPLOY_ROOT/automation/docker-compose.yml || true
-
-# 2. Dependencies
+# Phase 2: Dependencies
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}Installing system dependencies (Docker, Certbot, UFW, Cron)...${NC}"
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron
+echo -e "${YELLOW}[Step 2] Installing dependencies...${NC}"
+sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron
 
 if ! command -v docker &> /dev/null; then
     sudo install -m 0755 -d /etc/apt/keyrings
@@ -57,23 +78,10 @@ if ! command -v docker &> /dev/null; then
     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
-# 3. User Input
+# Phase 3: Secrets & Users
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}Interactive Configuration${NC}"
-read -p "Enter your main Domain or IP: " MAIN_DOMAIN
-read -p "Enter Admin email: " ADMIN_EMAIL
-echo "1) Subdomains | 2) Ports"; read -p "Choice: " ACCESS_CHOICE
-echo "1) Let's Encrypt | 2) Self-Signed | 3) HTTP Only"; read -p "Choice: " SSL_CHOICE
-
-# 4. Secrets (Idempotent)
-# -----------------------------------------------------------------------------
-get_secret() {
-    local key=$1
-    local file=$2
-    if [ -f "$file" ]; then
-        grep "^$key=" "$file" | head -n 1 | cut -d'=' -f2- | tr -d '\r' || echo ""
-    fi
-}
+echo -e "${YELLOW}[Step 3] Configuring secrets and users...${NC}"
+get_secret() { grep "^$1=" "$2" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || echo ""; }
 
 DB_ROOT_PASS=$(get_secret "MARIADB_ROOT_PASSWORD" "$DEPLOY_ROOT/db/.env")
 [ -z "$DB_ROOT_PASS" ] && DB_ROOT_PASS=$(openssl rand -hex 12)
@@ -90,14 +98,11 @@ AP_DB_PASS=$(get_secret "AP_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 HUGINN_DB_PASS=$(get_secret "HUGINN_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 [ -z "$HUGINN_DB_PASS" ] && HUGINN_DB_PASS=$(openssl rand -hex 12)
 
-# Load SFTP passwords if exists or new
 SFTP_WEB_PASS=$(grep "webuser" "$DEPLOY_ROOT/storage/users.conf" 2>/dev/null | cut -d':' -f2)
 [ -z "$SFTP_WEB_PASS" ] && SFTP_WEB_PASS=$(openssl rand -hex 12)
 SFTP_FILES_PASS=$(grep "filesuser" "$DEPLOY_ROOT/storage/users.conf" 2>/dev/null | cut -d':' -f2)
 [ -z "$SFTP_FILES_PASS" ] && SFTP_FILES_PASS=$(openssl rand -hex 12)
 
-# 5. Linux Users & SFTP Config
-# -----------------------------------------------------------------------------
 sudo useradd -m -s /usr/sbin/nologin webuser || true
 sudo useradd -m -s /usr/sbin/nologin filesuser || true
 WEB_UID=$(id -u webuser); FILES_UID=$(id -u filesuser)
@@ -107,14 +112,13 @@ echo "filesuser:$SFTP_FILES_PASS:$FILES_UID:$FILES_UID:my_ftp_files" | sudo tee 
 
 sudo chown -R webuser:webuser $DEPLOY_ROOT/data/web_root
 sudo chown -R filesuser:filesuser $DEPLOY_ROOT/data/ftp_storage
-sudo mkdir -p $DEPLOY_ROOT/data/n8n && sudo chown -R 1000:1000 $DEPLOY_ROOT/data/n8n
-sudo mkdir -p $DEPLOY_ROOT/data/activepieces && sudo chmod -R 777 $DEPLOY_ROOT/data/activepieces
-# Ensure database data directories are writable
-sudo chown -R 999:999 $DEPLOY_ROOT/data/postgres
-sudo chown -R 999:999 $DEPLOY_ROOT/data/mariadb
+sudo chown -R 1000:1000 $DEPLOY_ROOT/data/n8n
+sudo chmod -R 777 $DEPLOY_ROOT/data/activepieces
+sudo chown -R 999:999 $DEPLOY_ROOT/data/{postgres,mariadb}
 
-# 6. Environment Files
+# Phase 4: Environment & Templates
 # -----------------------------------------------------------------------------
+echo -e "${YELLOW}[Step 4] Writing service configurations...${NC}"
 PROTO="http"; [ "$SSL_CHOICE" != "3" ] && PROTO="https"
 BASE_URL="$PROTO://$MAIN_DOMAIN"
 AP_URL="$BASE_URL:8081"; [ "$ACCESS_CHOICE" == "1" ] && AP_URL="$PROTO://ap.$MAIN_DOMAIN"
@@ -155,79 +159,64 @@ WEB_DB_PASS=$WEB_DB_PASS
 WEB_DB_NAME=web_app_db
 EOF
 
-# 7. Nginx & SSL
-# -----------------------------------------------------------------------------
+sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" $DEPLOY_ROOT/automation/docker-compose.yml || true
 TEMPLATE="nginx_ports.conf"; [ "$ACCESS_CHOICE" == "1" ] && TEMPLATE="nginx_subdomains.conf"
 [ "$SSL_CHOICE" == "3" ] && TEMPLATE="nginx_http_only.conf"
-
 cp $DEPLOY_ROOT/templates/$TEMPLATE $DEPLOY_ROOT/proxy/conf.d/default.conf
 sed -i "s/__WEB_DOMAIN__/$MAIN_DOMAIN/g; s/__DOMAIN_OR_IP__/$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.conf
 sed -i "s/__ADMINER_DOMAIN__/db.$MAIN_DOMAIN/g; s/__N8N_DOMAIN__/n8n.$MAIN_DOMAIN/g; s/__AP_DOMAIN__/ap.$MAIN_DOMAIN/g; s/__HUGINN_DOMAIN__/huginn.$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.conf
 
-# Stop proxy to free port 80 for Certbot
+# Phase 5: SSL Setup
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}[Step 5] SSL Setup...${NC}"
 cd $DEPLOY_ROOT/proxy && sudo docker compose stop || true
-
 if [ "$SSL_CHOICE" == "1" ]; then
     sudo $DEPLOY_ROOT/scripts/ssl_setup.sh letsencrypt "$MAIN_DOMAIN" "$ADMIN_EMAIL" "$ACCESS_CHOICE"
 elif [ "$SSL_CHOICE" == "2" ]; then
     sudo $DEPLOY_ROOT/scripts/ssl_setup.sh selfsigned "$MAIN_DOMAIN"
 fi
-cp $DEPLOY_ROOT/templates/index.php $DEPLOY_ROOT/data/web_root/index.php
 
-# 8. Start Services & Init DB
+# Phase 6: Start Services & Init DB
 # -----------------------------------------------------------------------------
+echo -e "${YELLOW}[Step 6] Starting services...${NC}"
 sudo docker network create deploy-network || true
-cd $DEPLOY_ROOT/db && sudo docker compose down && sudo docker compose up -d
+cd $DEPLOY_ROOT/db && sudo docker compose up -d
 
-echo -e "${YELLOW}Waiting for databases to be ready...${NC}"
+echo "Waiting for DB readiness..."
 for i in {1..24}; do
-    STATUS_M=$(sudo docker inspect -f '{{.State.Status}}' mariadb-db 2>/dev/null || echo "missing")
-    STATUS_P=$(sudo docker inspect -f '{{.State.Status}}' postgres-db 2>/dev/null || echo "missing")
-
-    if [ "$STATUS_M" == "running" ] && [ "$STATUS_P" == "running" ]; then
-        if sudo docker exec mariadb-db mariadb-admin ping -p"$DB_ROOT_PASS" --silent && \
-           sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin --silent; then
-            echo -e "${GREEN}Databases are ready!${NC}"; break
-        fi
+    if sudo docker exec mariadb-db mariadb-admin ping -p"$DB_ROOT_PASS" --silent && \
+       sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin --silent; then
+        break
     fi
-    echo "Waiting for services to start... ($i/24) [M:$STATUS_M P:$STATUS_P]"; sleep 5
+    sleep 5
 done
 
 # MariaDB Init
-if [ "$(sudo docker inspect -f '{{.State.Status}}' mariadb-db 2>/dev/null)" == "running" ]; then
-    sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "
-    CREATE DATABASE IF NOT EXISTS web_app_db;
-    CREATE USER IF NOT EXISTS 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS';
-    GRANT ALL PRIVILEGES ON web_app_db.* TO 'web_app_user'@'%';
-    FLUSH PRIVILEGES;" || echo "Warning: MariaDB init failed"
-fi
+sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS web_app_db; CREATE USER IF NOT EXISTS 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS'; GRANT ALL PRIVILEGES ON web_app_db.* TO 'web_app_user'@'%'; FLUSH PRIVILEGES;" || true
 
 # Postgres Init
-if [ "$(sudo docker inspect -f '{{.State.Status}}' postgres-db 2>/dev/null)" == "running" ]; then
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS';" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE activepieces;" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER ap_user WITH PASSWORD '$AP_DB_PASS';" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE activepieces TO ap_user;" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE huginn;" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS';" || true
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;" || true
-fi
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS';" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;" || true
 
-cd $DEPLOY_ROOT/webserver && sudo docker compose up -d --build
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE activepieces;" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER ap_user WITH PASSWORD '$AP_DB_PASS';" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE activepieces TO ap_user;" || true
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE huginn;" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS';" || true
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;" || true
+
+cd $DEPLOY_ROOT/webserver && sudo docker compose build && sudo docker compose up -d
 cd $DEPLOY_ROOT/automation && sudo docker compose up -d
 cd $DEPLOY_ROOT/storage && sudo docker compose up -d
 cd $DEPLOY_ROOT/proxy && sudo docker compose up -d
 
-# 9. Firewall
-# -----------------------------------------------------------------------------
+# Final
 sudo ufw allow 22/tcp; sudo ufw allow 80/tcp; sudo ufw allow 443/tcp; sudo ufw allow 2222/tcp
 [ "$ACCESS_CHOICE" == "2" ] && (sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp)
 echo "y" | sudo ufw enable
 
-# 10. Credentials & Cron
-# -----------------------------------------------------------------------------
 cat <<EOF | sudo tee $DEPLOY_ROOT/credentials.txt > /dev/null
 OCI DEPLOYMENT CREDENTIALS
 Root DB: admin / $DB_ROOT_PASS
@@ -237,5 +226,5 @@ EOF
 sudo chmod 600 $DEPLOY_ROOT/credentials.txt
 (sudo crontab -l 2>/dev/null; echo "0 2 * * 0 $DEPLOY_ROOT/scripts/backup.sh >> $DEPLOY_ROOT/backups/backup.log 2>&1") | sudo crontab - || true
 
-echo -e "\n${GREEN}Setup Complete! Credentials in $DEPLOY_ROOT/credentials.txt${NC}"
+echo -e "\n${GREEN}Setup Successful! Credentials in $DEPLOY_ROOT/credentials.txt${NC}"
 sudo cat $DEPLOY_ROOT/credentials.txt

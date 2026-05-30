@@ -22,12 +22,14 @@ function get_db_status($type, $host, $user, $pass, $db) {
 
 $web_server_version = $_SERVER['SERVER_SOFTWARE'];
 $php_version = PHP_VERSION;
+$host_name = $_SERVER['HTTP_HOST'];
+$proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
 
-// Credentials from Environment
+// Database Credentials from Environment
 $mariadb_host = 'mariadb-db';
-$mariadb_user = 'root';
-$mariadb_pass = getenv('MARIADB_ROOT_PASSWORD') ?: 'password';
-$mariadb_db   = 'mysql';
+$mariadb_user = 'web_app_user';
+$mariadb_pass = getenv('WEB_DB_PASS') ?: 'password';
+$mariadb_db   = 'web_app_db';
 
 $postgres_host = 'postgres-db';
 $postgres_user = 'admin';
@@ -36,6 +38,20 @@ $postgres_db   = 'postgres';
 
 $mariadb_status = get_db_status('mariadb', $mariadb_host, $mariadb_user, $mariadb_pass, $mariadb_db);
 $postgres_status = get_db_status('postgres', $postgres_host, $postgres_user, $postgres_pass, $postgres_db);
+
+// Determine if we are using subdomains or ports based on the host name
+$is_port_access = (strpos($host_name, ':') !== false) || preg_match('/^\d+\.\d+\.\d+\.\d+$/', explode(':', $host_name)[0]);
+
+function get_service_url($base_proto, $base_host, $port, $subdomain) {
+    global $is_port_access;
+    $clean_host = explode(':', $base_host)[0];
+    if ($is_port_access) {
+        return "$base_proto://$clean_host:$port";
+    } else {
+        // Assuming the base_host is the main domain
+        return "$base_proto://$subdomain.$clean_host";
+    }
+}
 
 ?>
 <!DOCTYPE html>
@@ -50,7 +66,8 @@ $postgres_status = get_db_status('postgres', $postgres_host, $postgres_user, $po
         .label { font-weight: bold; width: 200px; display: inline-block; }
         .value { color: #555; }
         .links { margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; }
-        .links a { margin-right: 15px; color: #007bff; text-decoration: none; font-weight: bold; }
+        .links a { margin-right: 15px; color: #007bff; text-decoration: none; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+        .links a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -65,22 +82,23 @@ $postgres_status = get_db_status('postgres', $postgres_host, $postgres_user, $po
             <span class="value"><?php echo $php_version; ?></span>
         </div>
         <div class="status-item">
-            <span class="label">MariaDB Status:</span>
+            <span class="label">MariaDB (Web App):</span>
             <span class="value"><?php echo $mariadb_status; ?></span>
         </div>
         <div class="status-item">
-            <span class="label">PostgreSQL Status:</span>
+            <span class="label">PostgreSQL (Shared):</span>
             <span class="value"><?php echo $postgres_status; ?></span>
         </div>
 
         <div class="links">
             <strong>Tools & Services:</strong><br><br>
-            <a href="/adminer" target="_blank">Adminer (DB Management)</a>
-            <a href="/n8n" target="_blank">n8n</a>
-            <a href="/ap" target="_blank">Activepieces</a>
-            <a href="/huginn" target="_blank">Huginn</a>
+            <a href="<?php echo get_service_url($proto, $host_name, '8080', 'db'); ?>" target="_blank">Adminer (DB)</a>
+            <a href="<?php echo get_service_url($proto, $host_name, '5678', 'n8n'); ?>" target="_blank">n8n</a>
+            <a href="<?php echo get_service_url($proto, $host_name, '8081', 'ap'); ?>" target="_blank">Activepieces</a>
+            <a href="<?php echo get_service_url($proto, $host_name, '3000', 'huginn'); ?>" target="_blank">Huginn</a>
         </div>
-        <p><small>Note: If using Port-based access, use the specific ports (8080, 5678, 8081, 3000) instead of these links.</small></p>
+        <hr>
+        <p><small>Generated passwords and SFTP details can be found in <code>/opt/deploy/credentials.txt</code> on the server.</small></p>
     </div>
 </body>
 </html>
