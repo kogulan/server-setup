@@ -2,6 +2,9 @@ services:
   sftp:
     image: atmoz/sftp:latest
     container_name: sftp-server
+    # Explicitly pull arm64 if available or use a multi-arch tag if needed.
+    # atmoz/sftp usually supports arm64, but we can also use 'alpine' tag which is more lightweight and multi-arch.
+    # image: atmoz/sftp:alpine
     restart: always
     ports:
       - "2222:22"
