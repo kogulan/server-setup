@@ -1,0 +1,26 @@
+services:
+  ftpd:
+    image: stilliard/pure-ftpd:latest
+    container_name: pure-ftpd
+    restart: always
+    ports:
+      - "21:21"
+      - "30000-30009:30000-30009"
+    volumes:
+      - /opt/deploy/data/web_root:/home/webuser
+      - /opt/deploy/data/ftp_storage:/home/filesuser
+      - /opt/deploy/storage/pureftpd-data:/etc/pure-ftpd
+      - /opt/deploy/storage/passwd:/etc/pure-ftpd/passwd
+    environment:
+      - PUBLICHOST=${FTP_PUBLIC_HOST:-localhost}
+      - ADDED_FLAGS=--tls=1 --maxdiskfull=95 -lpuredb:/etc/pure-ftpd/pureftpd.pdb -E -j
+    networks:
+      - deploy-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  deploy-network:
+    external: true

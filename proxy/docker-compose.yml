@@ -1,0 +1,23 @@
+services:
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/deploy/proxy/conf.d:/etc/nginx/conf.d
+      - /opt/deploy/proxy/certs:/etc/nginx/certs
+      - /opt/deploy/data/nginx:/var/log/nginx
+      - /opt/deploy/data/web_root:/var/www/html
+    networks:
+      - deploy-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  deploy-network:
+    external: true
