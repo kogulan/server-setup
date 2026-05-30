@@ -12,6 +12,7 @@ services:
       - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASS:-n8n_pass}
       - N8N_PORT=5678
       - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
     volumes:
       - /opt/deploy/data/n8n:/home/node/.n8n
     networks:
@@ -35,6 +36,9 @@ services:
       - AP_REDIS_URL=redis://redis:6379
       - AP_ENVIRONMENT=production
       - AP_FRONTEND_URL=${AP_URL:-http://localhost:8081}
+      - AP_ENCRYPTION_KEY=${AP_ENCRYPTION_KEY}
+      - AP_JWT_SECRET=${AP_JWT_SECRET}
+      - AP_CONTAINER_TYPE=WORKER_AND_APP
     volumes:
       - /opt/deploy/data/activepieces:/root/.activepieces
     networks:
@@ -57,6 +61,8 @@ services:
       - DATABASE_PASSWORD=${HUGINN_DB_PASS:-huginn_pass}
       - REDIS_URL=redis://redis:6379
       - PORT=3000
+      - APP_SECRET_TOKEN=${HUGINN_APP_SECRET_TOKEN}
+      - INVITATION_CODE=${HUGINN_INVITATION_CODE}
     volumes:
       - /opt/deploy/data/huginn:/app/data
     networks:

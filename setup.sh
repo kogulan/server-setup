@@ -5,7 +5,9 @@
 # Target: Ubuntu 24.04 Minimal (x86_64 / ARM64)
 # =============================================================================
 
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -23,10 +25,47 @@ echo -e "NOTE: All database and SFTP passwords will be automatically"
 echo -e "generated and saved to ${YELLOW}$DEPLOY_ROOT/credentials.txt${NC}"
 echo -e "at the end of this setup. No manual .env editing is required.\n"
 
+upsert_env() {
+    local key="$1" value="$2" file="$3"
+    sudo touch "$file"
+    if sudo grep -q "^${key}=" "$file"; then
+        local escaped_value
+        escaped_value=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
+        sudo sed -i "s/^${key}=.*/${key}=${escaped_value}/" "$file"
+    else
+        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$file" > /dev/null
+    fi
+}
+
+replace_token() {
+    local token="$1" value="$2" file="$3"
+    local escaped_value
+    escaped_value=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
+    sudo sed -i "s/${token}/${escaped_value}/g" "$file"
+}
+
 # Phase 0: Pre-flight Checks
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 0] Pre-flight checks (fixing filesystem conflicts)...${NC}"
-sudo mkdir -p $DEPLOY_ROOT/{proxy/conf.d,proxy/certs,db,webserver,automation,storage,data/web_root,data/ftp_storage,data/postgres,data/mariadb,data/n8n,data/activepieces,data/huginn,data/redis,data/nginx,backups,scripts,templates}
+sudo mkdir -p "$DEPLOY_ROOT"/{proxy/conf.d,proxy/certs,db,webserver,automation,storage,data/web_root,data/ftp_storage,data/postgres,data/mariadb,data/n8n,data/activepieces,data/huginn,data/redis,data/nginx,backups,scripts,templates}
+
+# If this script is launched from a checkout outside /opt/deploy, copy the
+# deployment assets into place before Compose or helper scripts are referenced.
+if [ "$SCRIPT_DIR" != "$DEPLOY_ROOT" ]; then
+    echo "Synchronizing deployment files from $SCRIPT_DIR to $DEPLOY_ROOT..."
+    sudo cp -a "$SCRIPT_DIR/setup.sh" "$DEPLOY_ROOT/setup.sh"
+    for path in db webserver automation storage proxy; do
+        if [ -f "$SCRIPT_DIR/$path/docker-compose.yml" ]; then
+            sudo cp -a "$SCRIPT_DIR/$path/docker-compose.yml" "$DEPLOY_ROOT/$path/docker-compose.yml"
+        fi
+    done
+    if [ -f "$SCRIPT_DIR/webserver/Dockerfile" ]; then
+        sudo cp -a "$SCRIPT_DIR/webserver/Dockerfile" "$DEPLOY_ROOT/webserver/Dockerfile"
+    fi
+    sudo cp -a "$SCRIPT_DIR/scripts/." "$DEPLOY_ROOT/scripts/"
+    sudo cp -a "$SCRIPT_DIR/templates/." "$DEPLOY_ROOT/templates/"
+    sudo chmod +x "$DEPLOY_ROOT/setup.sh" "$DEPLOY_ROOT"/scripts/*.sh
+fi
 
 # Fix cases where Docker created directories instead of empty files
 for item in "$DEPLOY_ROOT/storage/users.conf" "$DEPLOY_ROOT/storage/passwd" "$CONFIG_FILE"; do
@@ -40,37 +79,46 @@ done
 # Phase 1: Load/Save Configuration
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 1] Loading user configuration...${NC}"
-[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE" || sudo touch "$CONFIG_FILE"
+[ -f "$CONFIG_FILE" ] && set -a && source "$CONFIG_FILE" && set +a || sudo touch "$CONFIG_FILE"
 
-if [ -z "$MAIN_DOMAIN" ]; then
+if [ -z "${MAIN_DOMAIN:-}" ]; then
     read -p "Enter your main Domain or IP (e.g., yourdomain.com): " MAIN_DOMAIN
-    echo "MAIN_DOMAIN=$MAIN_DOMAIN" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    upsert_env MAIN_DOMAIN "$MAIN_DOMAIN" "$CONFIG_FILE"
 fi
-if [ -z "$ADMIN_EMAIL" ]; then
+if [ -z "${ADMIN_EMAIL:-}" ]; then
     read -p "Enter Admin email (for SSL notifications): " ADMIN_EMAIL
-    echo "ADMIN_EMAIL=$ADMIN_EMAIL" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    upsert_env ADMIN_EMAIL "$ADMIN_EMAIL" "$CONFIG_FILE"
 fi
-if [ -z "$ACCESS_CHOICE" ]; then
+if [ -z "${ACCESS_CHOICE:-}" ]; then
     echo -e "\nHow would you like to access your tools?"
     echo "1) Subdomains (n8n.domain.com, ap.domain.com, etc.)"
     echo "2) Ports (domain.com:5678, domain.com:8081, etc.)"
     read -p "Choice [1-2]: " ACCESS_CHOICE
-    echo "ACCESS_CHOICE=$ACCESS_CHOICE" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    upsert_env ACCESS_CHOICE "$ACCESS_CHOICE" "$CONFIG_FILE"
 fi
-if [ -z "$SSL_CHOICE" ]; then
+if [ -z "${SSL_CHOICE:-}" ]; then
     echo -e "\nSSL Certificate Setup:"
     echo "1) Let's Encrypt (Requires Port 80 open & Domain pointed to IP)"
     echo "2) Self-Signed (Works for IP-based access)"
     echo "3) None (HTTP Only - insecure)"
     read -p "Choice [1-3]: " SSL_CHOICE
-    echo "SSL_CHOICE=$SSL_CHOICE" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    upsert_env SSL_CHOICE "$SSL_CHOICE" "$CONFIG_FILE"
 fi
+
+case "$ACCESS_CHOICE" in
+    1|2) ;;
+    *) echo -e "${RED}Invalid access choice: $ACCESS_CHOICE${NC}"; exit 1 ;;
+esac
+case "$SSL_CHOICE" in
+    1|2|3) ;;
+    *) echo -e "${RED}Invalid SSL choice: $SSL_CHOICE${NC}"; exit 1 ;;
+esac
 
 # 1b. System Performance Tuning
 # -----------------------------------------------------------------------------
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 if [ "$TOTAL_RAM" -lt 2000 ]; then
-    echo -e "${YELLOW}Detected 1GB RAM. Enabling Swap and strict container limits...${NC}"
+    echo -e "${YELLOW}Detected ${TOTAL_RAM}MB RAM. Enabling Swap and strict container limits...${NC}"
     DB_LIMIT="512M"; AUTO_LIMIT="512M"; PHP_LIMIT="256M"
     REDIS_CMD="redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru"
     if [ ! -f /swapfile ]; then
@@ -78,7 +126,7 @@ if [ "$TOTAL_RAM" -lt 2000 ]; then
         echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
     fi
 else
-    echo -e "${GREEN}Detected 24GB RAM. Using standard performance settings.${NC}"
+    echo -e "${GREEN}Detected ${TOTAL_RAM}MB RAM. Using standard performance settings.${NC}"
     DB_LIMIT="2G"; AUTO_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
 fi
 
@@ -129,20 +177,35 @@ AP_DB_PASS=$(get_secret "AP_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 HUGINN_DB_PASS=$(get_secret "HUGINN_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 [ -z "$HUGINN_DB_PASS" ] && HUGINN_DB_PASS=$(openssl rand -hex 12)
 
+N8N_ENCRYPTION_KEY=$(get_secret "N8N_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env")
+[ -z "$N8N_ENCRYPTION_KEY" ] && N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
+
+AP_ENCRYPTION_KEY=$(get_secret "AP_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env")
+[ -z "$AP_ENCRYPTION_KEY" ] && AP_ENCRYPTION_KEY=$(openssl rand -hex 16)
+
+AP_JWT_SECRET=$(get_secret "AP_JWT_SECRET" "$DEPLOY_ROOT/automation/.env")
+[ -z "$AP_JWT_SECRET" ] && AP_JWT_SECRET=$(openssl rand -hex 32)
+
+HUGINN_APP_SECRET_TOKEN=$(get_secret "HUGINN_APP_SECRET_TOKEN" "$DEPLOY_ROOT/automation/.env")
+[ -z "$HUGINN_APP_SECRET_TOKEN" ] && HUGINN_APP_SECRET_TOKEN=$(openssl rand -hex 64)
+
+HUGINN_INVITATION_CODE=$(get_secret "HUGINN_INVITATION_CODE" "$DEPLOY_ROOT/automation/.env")
+[ -z "$HUGINN_INVITATION_CODE" ] && HUGINN_INVITATION_CODE=$(openssl rand -hex 12)
+
 # Handle SFTP Config for Emberstack (JSON format)
 SFTP_WEB_PASS=$(get_secret "SFTP_WEB_PASS" "$DEPLOY_ROOT/.env")
 [ -z "$SFTP_WEB_PASS" ] && SFTP_WEB_PASS=$(openssl rand -hex 12)
-echo "SFTP_WEB_PASS=$SFTP_WEB_PASS" | sudo tee -a "$CONFIG_FILE" > /dev/null
+upsert_env SFTP_WEB_PASS "$SFTP_WEB_PASS" "$CONFIG_FILE"
 
 SFTP_FILES_PASS=$(get_secret "SFTP_FILES_PASS" "$DEPLOY_ROOT/.env")
 [ -z "$SFTP_FILES_PASS" ] && SFTP_FILES_PASS=$(openssl rand -hex 12)
-echo "SFTP_FILES_PASS=$SFTP_FILES_PASS" | sudo tee -a "$CONFIG_FILE" > /dev/null
+upsert_env SFTP_FILES_PASS "$SFTP_FILES_PASS" "$CONFIG_FILE"
 
 sudo useradd -m -s /usr/sbin/nologin webuser || true
 sudo useradd -m -s /usr/sbin/nologin filesuser || true
 WEB_UID=$(id -u webuser); FILES_UID=$(id -u filesuser)
 
-cat <<EOF | sudo tee $DEPLOY_ROOT/storage/sftp.json > /dev/null
+cat <<EOF | sudo tee "$DEPLOY_ROOT/storage/sftp.json" > /dev/null
 {
     "Global": {
         "Chroot": { "Directory": "%h" }
@@ -166,11 +229,11 @@ cat <<EOF | sudo tee $DEPLOY_ROOT/storage/sftp.json > /dev/null
 }
 EOF
 
-sudo chown -R webuser:webuser $DEPLOY_ROOT/data/web_root
-sudo chown -R filesuser:filesuser $DEPLOY_ROOT/data/ftp_storage
-sudo chown -R 1000:1000 $DEPLOY_ROOT/data/n8n
-sudo chmod -R 777 $DEPLOY_ROOT/data/activepieces
-sudo chown -R 999:999 $DEPLOY_ROOT/data/{postgres,mariadb}
+sudo chown -R webuser:webuser "$DEPLOY_ROOT/data/web_root"
+sudo chown -R filesuser:filesuser "$DEPLOY_ROOT/data/ftp_storage"
+sudo chown -R 1000:1000 "$DEPLOY_ROOT/data/n8n"
+sudo chmod -R 777 "$DEPLOY_ROOT/data/activepieces"
+sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
 # Fix for Postgres 18+ data directory structure
 if [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
@@ -187,7 +250,7 @@ BASE_URL="$PROTO://$MAIN_DOMAIN"
 AP_URL="$BASE_URL:8081"; [ "$ACCESS_CHOICE" == "1" ] && AP_URL="$PROTO://ap.$MAIN_DOMAIN"
 N8N_WEBHOOK_URL="$BASE_URL:5678/"; [ "$ACCESS_CHOICE" == "1" ] && N8N_WEBHOOK_URL="$PROTO://n8n.$MAIN_DOMAIN/"
 
-cat <<EOF > $DEPLOY_ROOT/db/.env
+cat <<EOF | sudo tee "$DEPLOY_ROOT/db/.env" > /dev/null
 POSTGRES_USER=admin
 POSTGRES_PASSWORD=$DB_ROOT_PASS
 MARIADB_ROOT_PASSWORD=$DB_ROOT_PASS
@@ -195,25 +258,30 @@ DB_MEMORY_LIMIT=$DB_LIMIT
 ADMINER_PORT=8080
 EOF
 
-cat <<EOF > $DEPLOY_ROOT/automation/.env
+cat <<EOF | sudo tee "$DEPLOY_ROOT/automation/.env" > /dev/null
 AUTOMATION_MEMORY_LIMIT=$AUTO_LIMIT
 N8N_DB=n8n
 N8N_DB_USER=n8n_user
 N8N_DB_PASS=$N8N_DB_PASS
 N8N_PORT_EXTERNAL=5678
 N8N_WEBHOOK_URL=$N8N_WEBHOOK_URL
+N8N_ENCRYPTION_KEY=$N8N_ENCRYPTION_KEY
 AP_DB=activepieces
 AP_DB_USER=ap_user
 AP_DB_PASS=$AP_DB_PASS
 AP_PORT_EXTERNAL=8081
 AP_URL=$AP_URL
+AP_ENCRYPTION_KEY=$AP_ENCRYPTION_KEY
+AP_JWT_SECRET=$AP_JWT_SECRET
 HUGINN_DB=huginn
 HUGINN_DB_USER=huginn_user
 HUGINN_DB_PASS=$HUGINN_DB_PASS
+HUGINN_APP_SECRET_TOKEN=$HUGINN_APP_SECRET_TOKEN
+HUGINN_INVITATION_CODE=$HUGINN_INVITATION_CODE
 HUGINN_PORT_EXTERNAL=3000
 EOF
 
-cat <<EOF > $DEPLOY_ROOT/webserver/.env
+cat <<EOF | sudo tee "$DEPLOY_ROOT/webserver/.env" > /dev/null
 PHP_MEMORY_LIMIT=$PHP_LIMIT
 MARIADB_ROOT_PASSWORD=$DB_ROOT_PASS
 POSTGRES_PASSWORD=$DB_ROOT_PASS
@@ -222,29 +290,37 @@ WEB_DB_PASS=$WEB_DB_PASS
 WEB_DB_NAME=web_app_db
 EOF
 
-sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" $DEPLOY_ROOT/automation/docker-compose.yml || true
+sudo sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" "$DEPLOY_ROOT/automation/docker-compose.yml" || true
 TEMPLATE="nginx_ports.conf"; [ "$ACCESS_CHOICE" == "1" ] && TEMPLATE="nginx_subdomains.conf"
-[ "$SSL_CHOICE" == "3" ] && TEMPLATE="nginx_http_only.conf"
-cp $DEPLOY_ROOT/templates/$TEMPLATE $DEPLOY_ROOT/proxy/conf.d/default.conf
-sed -i "s/__WEB_DOMAIN__/$MAIN_DOMAIN/g; s/__DOMAIN_OR_IP__/$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.conf
-sed -i "s/__ADMINER_DOMAIN__/db.$MAIN_DOMAIN/g; s/__N8N_DOMAIN__/n8n.$MAIN_DOMAIN/g; s/__AP_DOMAIN__/ap.$MAIN_DOMAIN/g; s/__HUGINN_DOMAIN__/huginn.$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.conf
+if [ "$SSL_CHOICE" == "3" ]; then
+    TEMPLATE="nginx_ports_http.conf"
+    [ "$ACCESS_CHOICE" == "1" ] && TEMPLATE="nginx_subdomains_http.conf"
+fi
+sudo cp "$DEPLOY_ROOT/templates/$TEMPLATE" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__WEB_DOMAIN__" "$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__DOMAIN_OR_IP__" "$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__ADMINER_DOMAIN__" "db.$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__N8N_DOMAIN__" "n8n.$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__AP_DOMAIN__" "ap.$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+replace_token "__HUGINN_DOMAIN__" "huginn.$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
 
 # Phase 5: SSL
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 5] Configuring SSL...${NC}"
-cd $DEPLOY_ROOT/proxy && sudo docker compose stop || true
+sudo chmod +x "$DEPLOY_ROOT"/scripts/*.sh
+cd "$DEPLOY_ROOT/proxy" && sudo docker compose stop || true
 if [ "$SSL_CHOICE" == "1" ]; then
-    sudo $DEPLOY_ROOT/scripts/ssl_setup.sh letsencrypt "$MAIN_DOMAIN" "$ADMIN_EMAIL" "$ACCESS_CHOICE"
+    sudo "$DEPLOY_ROOT/scripts/ssl_setup.sh" letsencrypt "$MAIN_DOMAIN" "$ADMIN_EMAIL" "$ACCESS_CHOICE"
 elif [ "$SSL_CHOICE" == "2" ]; then
-    sudo $DEPLOY_ROOT/scripts/ssl_setup.sh selfsigned "$MAIN_DOMAIN"
+    sudo "$DEPLOY_ROOT/scripts/ssl_setup.sh" selfsigned "$MAIN_DOMAIN"
 fi
-cp $DEPLOY_ROOT/templates/index.php $DEPLOY_ROOT/data/web_root/index.php
+sudo cp "$DEPLOY_ROOT/templates/index.php" "$DEPLOY_ROOT/data/web_root/index.php"
 
 # Phase 6: Service Start & DB Setup
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 6] Initializing containerized services...${NC}"
 sudo docker network create deploy-network || true
-cd $DEPLOY_ROOT/db && sudo docker compose up -d
+cd "$DEPLOY_ROOT/db" && sudo docker compose up -d
 
 echo -e "Waiting for databases (up to 2 mins)..."
 for i in {1..24}; do
@@ -286,10 +362,10 @@ sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'huginn_user') THEN CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS'; END IF; END \$\$;"
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;"
 
-cd $DEPLOY_ROOT/webserver && sudo docker compose up -d --build
-cd $DEPLOY_ROOT/automation && sudo docker compose up -d
-cd $DEPLOY_ROOT/storage && sudo docker compose up -d
-cd $DEPLOY_ROOT/proxy && sudo docker compose up -d
+cd "$DEPLOY_ROOT/webserver" && sudo docker compose up -d --build
+cd "$DEPLOY_ROOT/automation" && sudo docker compose up -d
+cd "$DEPLOY_ROOT/storage" && sudo docker compose up -d
+cd "$DEPLOY_ROOT/proxy" && sudo docker compose up -d
 
 # Final: Firewall & Credentials
 # -----------------------------------------------------------------------------
@@ -305,7 +381,7 @@ if [ "$ACCESS_CHOICE" == "2" ]; then
 fi
 echo "y" | sudo ufw enable
 
-cat <<EOF | sudo tee $DEPLOY_ROOT/credentials.txt > /dev/null
+cat <<EOF | sudo tee "$DEPLOY_ROOT/credentials.txt" > /dev/null
 ================================================================
 OCI DEPLOYMENT CREDENTIALS
 ================================================================
@@ -314,10 +390,11 @@ Web App DB: web_app_user / $WEB_DB_PASS (DB: web_app_db)
 SFTP (Port 2222):
   Web Root: webuser / $SFTP_WEB_PASS
   Storage:  filesuser / $SFTP_FILES_PASS
+Huginn invitation code: $HUGINN_INVITATION_CODE
 ================================================================
 EOF
-sudo chmod 600 $DEPLOY_ROOT/credentials.txt
+sudo chmod 600 "$DEPLOY_ROOT/credentials.txt"
 (sudo crontab -l 2>/dev/null; echo "0 2 * * 0 $DEPLOY_ROOT/scripts/backup.sh >> $DEPLOY_ROOT/backups/backup.log 2>&1") | sudo crontab - || true
 
 echo -e "\n${GREEN}Setup Successful! Credentials saved to ${NC}$DEPLOY_ROOT/credentials.txt"
-sudo cat $DEPLOY_ROOT/credentials.txt
+sudo cat "$DEPLOY_ROOT/credentials.txt"
