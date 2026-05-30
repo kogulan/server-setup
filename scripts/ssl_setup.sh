@@ -18,8 +18,23 @@ if [ "$MODE" == "selfsigned" ]; then
         -subj "/C=US/ST=State/L=City/O=Organization/CN=$DOMAIN"
 
 elif [ "$MODE" == "letsencrypt" ]; then
-    echo "Stopping proxy to free port 80 for Certbot..."
+    echo "Ensuring port 80 is free for Certbot..."
+
+    # 1. Stop the docker proxy
     cd /opt/deploy/proxy && docker compose stop || true
+
+    # 2. Stop host-based web servers that might be running
+    sudo systemctl stop nginx 2>/dev/null || true
+    sudo systemctl stop apache2 2>/dev/null || true
+
+    # 3. Kill anything else on port 80
+    if command -v lsof >/dev/null; then
+        PID_80=$(sudo lsof -t -i :80)
+        if [ ! -z "$PID_80" ]; then
+            echo "Killing process on port 80 (PID: $PID_80)..."
+            sudo kill -9 $PID_80 || true
+        fi
+    fi
 
     # Prepare domains list
     DOMAINS="-d $DOMAIN"

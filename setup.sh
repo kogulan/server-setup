@@ -85,7 +85,20 @@ fi
 # Phase 2: Dependencies
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 2] Installing system dependencies (Docker, SSL, Cron)...${NC}"
-sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron
+sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron lsof
+
+# Early Firewall Configuration (Critical for OCI)
+echo -e "${YELLOW}[Step 2.1] Opening ports 80/443/22 in local firewall...${NC}"
+# Insert rules at top of iptables to bypass OCI default REJECT rules
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT || true
+sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT || true
+sudo iptables -I INPUT -p tcp --dport 22 -j ACCEPT || true
+# Configure UFW
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 2222/tcp
+echo "y" | sudo ufw enable
 
 if ! command -v docker &> /dev/null; then
     sudo install -m 0755 -d /etc/apt/keyrings
@@ -229,9 +242,16 @@ cd $DEPLOY_ROOT/proxy && sudo docker compose up -d
 
 # Final: Firewall & Credentials
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[Final] Enabling Firewall...${NC}"
+echo -e "${YELLOW}[Final] Updating Firewall...${NC}"
+sudo iptables -I INPUT -p tcp --dport 2222 -j ACCEPT || true
 sudo ufw allow 22/tcp; sudo ufw allow 80/tcp; sudo ufw allow 443/tcp; sudo ufw allow 2222/tcp
-[ "$ACCESS_CHOICE" == "2" ] && (sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp)
+if [ "$ACCESS_CHOICE" == "2" ]; then
+    sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp
+    sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 5678 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 3000 -j ACCEPT || true
+fi
 echo "y" | sudo ufw enable
 
 cat <<EOF | sudo tee $DEPLOY_ROOT/credentials.txt > /dev/null
