@@ -1,6 +1,6 @@
 services:
   sftp:
-    image: atmoz/sftp:arm64
+    image: emberstack/sftp:latest
     container_name: sftp-server
     restart: always
     ports:
@@ -8,7 +8,7 @@ services:
     volumes:
       - /opt/deploy/data/web_root:/home/webuser/web_root
       - /opt/deploy/data/ftp_storage:/home/filesuser/my_ftp_files
-      - /opt/deploy/storage/users.conf:/etc/sftp/users.conf:ro
+      - /opt/deploy/storage/sftp.json:/app/config/sftp.json:ro
     networks:
       - deploy-network
     deploy:

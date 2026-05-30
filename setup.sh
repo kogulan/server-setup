@@ -129,17 +129,42 @@ AP_DB_PASS=$(get_secret "AP_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 HUGINN_DB_PASS=$(get_secret "HUGINN_DB_PASS" "$DEPLOY_ROOT/automation/.env")
 [ -z "$HUGINN_DB_PASS" ] && HUGINN_DB_PASS=$(openssl rand -hex 12)
 
-SFTP_WEB_PASS=$(grep "webuser" "$DEPLOY_ROOT/storage/users.conf" 2>/dev/null | cut -d':' -f2)
+# Handle SFTP Config for Emberstack (JSON format)
+SFTP_WEB_PASS=$(get_secret "SFTP_WEB_PASS" "$DEPLOY_ROOT/.env")
 [ -z "$SFTP_WEB_PASS" ] && SFTP_WEB_PASS=$(openssl rand -hex 12)
-SFTP_FILES_PASS=$(grep "filesuser" "$DEPLOY_ROOT/storage/users.conf" 2>/dev/null | cut -d':' -f2)
+echo "SFTP_WEB_PASS=$SFTP_WEB_PASS" | sudo tee -a "$CONFIG_FILE" > /dev/null
+
+SFTP_FILES_PASS=$(get_secret "SFTP_FILES_PASS" "$DEPLOY_ROOT/.env")
 [ -z "$SFTP_FILES_PASS" ] && SFTP_FILES_PASS=$(openssl rand -hex 12)
+echo "SFTP_FILES_PASS=$SFTP_FILES_PASS" | sudo tee -a "$CONFIG_FILE" > /dev/null
 
 sudo useradd -m -s /usr/sbin/nologin webuser || true
 sudo useradd -m -s /usr/sbin/nologin filesuser || true
 WEB_UID=$(id -u webuser); FILES_UID=$(id -u filesuser)
 
-echo "webuser:$SFTP_WEB_PASS:$WEB_UID:$WEB_UID:web_root" | sudo tee $DEPLOY_ROOT/storage/users.conf > /dev/null
-echo "filesuser:$SFTP_FILES_PASS:$FILES_UID:$FILES_UID:my_ftp_files" | sudo tee -a $DEPLOY_ROOT/storage/users.conf > /dev/null
+cat <<EOF | sudo tee $DEPLOY_ROOT/storage/sftp.json > /dev/null
+{
+    "Global": {
+        "Chroot": { "Directory": "%h" }
+    },
+    "Users": [
+        {
+            "Username": "webuser",
+            "Password": "$SFTP_WEB_PASS",
+            "Uid": $WEB_UID,
+            "Gid": $WEB_UID,
+            "Directories": ["web_root"]
+        },
+        {
+            "Username": "filesuser",
+            "Password": "$SFTP_FILES_PASS",
+            "Uid": $FILES_UID,
+            "Gid": $FILES_UID,
+            "Directories": ["my_ftp_files"]
+        }
+    ]
+}
+EOF
 
 sudo chown -R webuser:webuser $DEPLOY_ROOT/data/web_root
 sudo chown -R filesuser:filesuser $DEPLOY_ROOT/data/ftp_storage
