@@ -1,6 +1,6 @@
 services:
   sftp:
-    image: atmoz/sftp:latest
+    image: atmoz/sftp:arm64
     container_name: sftp-server
     restart: always
     ports:
