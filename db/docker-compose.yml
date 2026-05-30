@@ -34,8 +34,6 @@ services:
     image: adminer:standalone
     container_name: adminer
     restart: always
-    ports:
-      - "${ADMINER_PORT:-8080}:8080"
     networks:
       - deploy-network
     deploy:

@@ -1,19 +1,14 @@
 services:
-  ftpd:
-    image: stilliard/pure-ftpd:latest
-    container_name: pure-ftpd
+  sftp:
+    image: atmoz/sftp:latest
+    container_name: sftp-server
     restart: always
     ports:
-      - "21:21"
-      - "30000-30009:30000-30009"
+      - "2222:22"
     volumes:
-      - /opt/deploy/data/web_root:/home/webuser
-      - /opt/deploy/data/ftp_storage:/home/filesuser
-      - /opt/deploy/storage/pureftpd-data:/etc/pure-ftpd
-      - /opt/deploy/storage/passwd:/etc/pure-ftpd/passwd
-    environment:
-      - PUBLICHOST=${FTP_PUBLIC_HOST:-localhost}
-      - ADDED_FLAGS=--tls=1 --maxdiskfull=95 -lpuredb:/etc/pure-ftpd/pureftpd.pdb -E -j
+      - /opt/deploy/data/web_root:/home/webuser/web_root
+      - /opt/deploy/data/ftp_storage:/home/filesuser/my_ftp_files
+      - /opt/deploy/storage/users.conf:/etc/sftp/users.conf:ro
     networks:
       - deploy-network
     deploy:

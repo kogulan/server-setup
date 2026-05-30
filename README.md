@@ -1,77 +1,57 @@
 # OCI Production-Ready Deployment Package
 
-This package provides a complete, automated setup for deploying a suite of web services, automation tools, and FTP storage on Oracle Cloud Infrastructure (OCI) Ubuntu 24.04 Minimal VMs.
+This package provides an automated setup for a suite of web services, automation tools, and SFTP storage on Oracle Cloud Infrastructure (OCI).
 
-## 🏗 Architecture Overview
+## 🚀 Getting Started (How to Transfer Files)
 
-The solution uses a modular Docker Compose architecture:
-- **Proxy**: Nginx handles incoming traffic, SSL termination, and routing.
-- **Database**: Shared PostgreSQL (for automation) and MariaDB (for PHP web root) containers.
-- **Web Server**: PHP 8.3-FPM with a blank environment.
-- **Automation**: n8n, Activepieces, and Huginn sharing a tiny Redis instance.
-- **Storage**: Pure-FTPd providing isolated access to the web root and a separate file folder.
-- **Security**: UFW firewall on the host, Docker network isolation, and optional Let's Encrypt SSL.
+To get this setup onto your fresh OCI VM, follow these steps:
+
+1. **Connect to your OCI VM** via SSH.
+2. **Download the package**:
+   ```bash
+   sudo apt-get update && sudo apt-get install -y git
+   git clone https://github.com/your-repo/oci-deploy.git /tmp/oci-deploy
+   sudo mkdir -p /opt/deploy
+   sudo cp -r /tmp/oci-deploy/* /opt/deploy/
+   ```
+3. **Run the Orchestrator**:
+   ```bash
+   cd /opt/deploy
+   sudo chmod +x setup.sh
+   sudo ./setup.sh
+   ```
+
+## 🏗 Architecture & Features
+
+- **SFTP (Port 2222)**: Secure File Transfer replacing insecure FTP.
+- **RAM-Aware**:
+  - **1GB RAM (E2.1.Micro)**: Configures 4GB swap and a tiny Redis (64MB) for stability.
+  - **24GB RAM (A1.Flex)**: Configures standard performance without strict limits.
+- **SSL Support**: Every service (n8n, Activepieces, etc.) is served over HTTPS, even when using port-based access.
+- **Centralized Credentials**: All generated passwords are saved securely in `/opt/deploy/credentials.txt`.
 
 ## 📂 Folder Structure
 
-```text
-/opt/deploy/
-├── setup.sh             # Main installation and configuration script
-├── proxy/               # Nginx configuration and Compose file
-├── db/                  # PostgreSQL, MariaDB, and Adminer
-├── webserver/           # PHP-FPM service
-├── automation/          # n8n, Activepieces, Huginn, Redis
-├── storage/             # Pure-FTPd service
-├── data/                # Persistent volumes for all services
-│   ├── web_root/        # Web server files (linked to FTP)
-│   └── ftp_storage/     # General FTP files (no web access)
-├── backups/             # Automated weekly backups
-├── scripts/             # Utility scripts (SSL, Backup)
-└── templates/           # Configuration templates
-```
+- `/opt/deploy/setup.sh`: The main orchestrator.
+- `/opt/deploy/data/`: ALL persistent data.
+- `/opt/deploy/backups/`: Weekly compressed backups (7-day retention).
+- `/opt/deploy/credentials.txt`: Generated passwords and access links.
 
-## 🚀 Installation
+## 🛡 Security & Firewall
 
-1. **Prerequisites**: A fresh OCI Ubuntu 24.04 Minimal VM (x86_64 or ARM64).
-2. **Download & Run**:
-   ```bash
-   sudo chmod +x /opt/deploy/setup.sh
-   sudo /opt/deploy/setup.sh
-   ```
-3. **Interactive Setup**: Follow the prompts to configure your domain, email, and access method (Subdomains vs Ports).
-
-## 🛡 Firewall Configuration
-
-### Internal (UFW)
-The script automatically configures UFW. If you use the **Ports** access method, additional ports (5678, 8081, 3000, 8080) are opened.
-
-### External (OCI Security Lists)
-You **MUST** manually open the following ports in the OCI Console:
-- **Core**: 80, 443, 22
-- **FTP**: 21, 30000-30009
+### OCI Cloud Console (Ingress Rules)
+You **MUST** open these ports in your OCI Security List:
+- **Web**: 80, 443
+- **SSH**: 22
+- **SFTP**: 2222
 - **Services (if using Ports)**: 8080, 5678, 8081, 3000
 
-## 🧪 Verification & Testing
-
-- **Web Access**: Visit `http://yourdomain.com` (or IP). You should see the Deployment Status page.
-- **DB Management**: Visit the Adminer URL to manage both Postgres and MariaDB.
-- **FTP Connectivity**:
-  - **Web Root**: Connect to Port 21 with `webuser`. Files appear in `/opt/deploy/data/web_root`.
-  - **File Storage**: Connect to Port 21 with `filesuser`. Files appear in `/opt/deploy/data/ftp_storage`.
-- **Docker Status**: `sudo docker ps` should show 10 running containers.
+### Internal SFTP
+- **Web Root**: Connect to Port **2222** with user `webuser`. Files are in `web_root/`.
+- **File Storage**: Connect to Port **2222** with user `filesuser`. Files are in `my_ftp_files/`.
 
 ## 📦 Backups
-
-- **Automatic**: A cron job runs `/opt/deploy/scripts/backup.sh` every Sunday at 2:00 AM.
-- **Manual**: Run `sudo /opt/deploy/scripts/backup.sh` anytime.
-- **Retention**: Only the last 7 days of backups are kept in `/opt/deploy/backups`.
+Automatic backups run every Sunday at 2:00 AM. They include all PostgreSQL and MariaDB databases plus your file storage.
 
 ## 🛠 Troubleshooting
-
-- **Containers not starting**: Check logs with `docker compose logs -f` inside the specific service directory.
-- **Permission Issues**: Ensure files in `data/` are owned by the respective user/UID. The `setup.sh` handles initial ownership.
-- **SSL Failures**: Ensure your domain is correctly pointed to the server IP and port 80 is open before running the Let's Encrypt setup.
-- **RAM Issues**: If services crash on 1GB RAM, verify that the swap file is active: `swapon --show`.
-
----
-*Optimized for performance, security, and low resource usage on OCI Free Tier.*
+If a service is slow on a 1GB VM, it's normal as it uses Swap. Check `sudo docker ps` to ensure all 10 containers are healthy.

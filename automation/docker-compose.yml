@@ -11,12 +11,11 @@ services:
       - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n_user}
       - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASS:-n8n_pass}
       - N8N_PORT=5678
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
     volumes:
       - /opt/deploy/data/n8n:/home/node/.n8n
     networks:
       - deploy-network
-    ports:
-      - "${N8N_PORT_EXTERNAL:-5678}:5678"
     deploy:
       resources:
         limits:
@@ -40,8 +39,6 @@ services:
       - /opt/deploy/data/activepieces:/root/.activepieces
     networks:
       - deploy-network
-    ports:
-      - "${AP_PORT_EXTERNAL:-8081}:80"
     deploy:
       resources:
         limits:
@@ -58,13 +55,12 @@ services:
       - DATABASE_PORT=5432
       - DATABASE_USERNAME=${HUGINN_DB_USER:-huginn_user}
       - DATABASE_PASSWORD=${HUGINN_DB_PASS:-huginn_pass}
+      - REDIS_URL=redis://redis:6379
       - PORT=3000
     volumes:
       - /opt/deploy/data/huginn:/app/data
     networks:
       - deploy-network
-    ports:
-      - "${HUGINN_PORT_EXTERNAL:-3000}:3000"
     deploy:
       resources:
         limits:
@@ -74,7 +70,7 @@ services:
     image: redis:alpine
     container_name: redis
     restart: always
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    command: redis-server
     networks:
       - deploy-network
     deploy:

@@ -6,6 +6,10 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8080:8080"
+      - "5678:5678"
+      - "8081:8081"
+      - "3000:3000"
     volumes:
       - /opt/deploy/proxy/conf.d:/etc/nginx/conf.d
       - /opt/deploy/proxy/certs:/etc/nginx/certs
