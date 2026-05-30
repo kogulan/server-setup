@@ -147,13 +147,6 @@ sudo chown -R 1000:1000 $DEPLOY_ROOT/data/n8n
 sudo chmod -R 777 $DEPLOY_ROOT/data/activepieces
 sudo chown -R 999:999 $DEPLOY_ROOT/data/{postgres,mariadb}
 
-# Fix for Postgres 18+ data directory structure
-if [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
-    echo "Converting legacy Postgres data structure..."
-    sudo mv $DEPLOY_ROOT/data/postgres/data/* $DEPLOY_ROOT/data/postgres/ 2>/dev/null || true
-    sudo rm -rf $DEPLOY_ROOT/data/postgres/data
-fi
-
 # Phase 4: Write Service Envs
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 4] Synchronizing service environment files...${NC}"
@@ -224,7 +217,7 @@ cd $DEPLOY_ROOT/db && sudo docker compose up -d
 echo -e "Waiting for databases (up to 2 mins)..."
 for i in {1..24}; do
     if sudo docker exec mariadb-db mariadb-admin ping -p"$DB_ROOT_PASS" --silent && \
-       sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin --silent; then
+       sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin -q; then
         echo -e "${GREEN}Databases verified.${NC}"; break
     fi
     sleep 5
