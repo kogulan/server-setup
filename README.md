@@ -4,8 +4,6 @@ This package provides an automated setup for a suite of web services, automation
 
 ## 🚀 Getting Started (How to Transfer Files)
 
-To get this setup onto your fresh OCI VM, follow these steps:
-
 1. **Connect to your OCI VM** via SSH.
 2. **Download the package**:
    ```bash
@@ -14,7 +12,10 @@ To get this setup onto your fresh OCI VM, follow these steps:
    sudo mkdir -p /opt/deploy
    sudo cp -r /tmp/oci-deploy/* /opt/deploy/
    ```
-3. **Run the Orchestrator**:
+3. **⚠️ IMPORTANT: Port 80**
+   Before running the script, ensure **Port 80** is open in your OCI Cloud Console Security List. Let's Encrypt requires this to verify your domain.
+
+4. **Run the Orchestrator**:
    ```bash
    cd /opt/deploy
    sudo chmod +x setup.sh
@@ -30,13 +31,6 @@ To get this setup onto your fresh OCI VM, follow these steps:
 - **SSL Support**: Every service (n8n, Activepieces, etc.) is served over HTTPS, even when using port-based access.
 - **Centralized Credentials**: All generated passwords are saved securely in `/opt/deploy/credentials.txt`.
 
-## 📂 Folder Structure
-
-- `/opt/deploy/setup.sh`: The main orchestrator.
-- `/opt/deploy/data/`: ALL persistent data.
-- `/opt/deploy/backups/`: Weekly compressed backups (7-day retention).
-- `/opt/deploy/credentials.txt`: Generated passwords and access links.
-
 ## 🛡 Security & Firewall
 
 ### OCI Cloud Console (Ingress Rules)
@@ -46,12 +40,10 @@ You **MUST** open these ports in your OCI Security List:
 - **SFTP**: 2222
 - **Services (if using Ports)**: 8080, 5678, 8081, 3000
 
-### Internal SFTP
-- **Web Root**: Connect to Port **2222** with user `webuser`. Files are in `web_root/`.
-- **File Storage**: Connect to Port **2222** with user `filesuser`. Files are in `my_ftp_files/`.
-
 ## 📦 Backups
 Automatic backups run every Sunday at 2:00 AM. They include all PostgreSQL and MariaDB databases plus your file storage.
 
 ## 🛠 Troubleshooting
-If a service is slow on a 1GB VM, it's normal as it uses Swap. Check `sudo docker ps` to ensure all 10 containers are healthy.
+- **Certbot failed**: Ensure your domain points to the server IP and Port 80 is open. The script will fall back to self-signed SSL if it fails.
+- **"Crontab not found"**: This is now fixed in the updated script by auto-installing the `cron` package.
+- **Slow performance**: On 1GB VMs, services may respond slower due to Swap usage.

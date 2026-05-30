@@ -17,8 +17,7 @@ echo -e "${GREEN}Starting OCI Deployment Setup...${NC}"
 
 DEPLOY_ROOT="/opt/deploy"
 sudo mkdir -p $DEPLOY_ROOT/{proxy/conf.d,proxy/certs,db,webserver,automation,storage,data/web_root,data/ftp_storage,data/postgres,data/mariadb,data/n8n,data/activepieces,data/huginn,data/redis,data/nginx,backups,scripts,templates}
-sudo chmod +x $DEPLOY_ROOT/scripts/*.sh
-sudo chmod +x $DEPLOY_ROOT/setup.sh
+sudo chmod +x $DEPLOY_ROOT/scripts/*.sh || true
 
 # 1. RAM Detection & Optimization
 # -----------------------------------------------------------------------------
@@ -26,7 +25,7 @@ TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 echo "Detected Total RAM: ${TOTAL_RAM}MB"
 
 if [ "$TOTAL_RAM" -lt 2000 ]; then
-    echo -e "${YELLOW}Low RAM (<2GB). Configuring 4GB Swap and Tiny Redis...${NC}"
+    echo -e "${YELLOW}Low RAM detected (<2GB). Configuring 4GB Swap and Tiny Redis...${NC}"
     if [ ! -f /swapfile ]; then
         sudo fallocate -l 4G /swapfile
         sudo chmod 600 /swapfile
@@ -50,7 +49,9 @@ sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" $DEPLOY_ROOT/automation
 
 # 2. Dependencies
 # -----------------------------------------------------------------------------
-sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl
+echo -e "${YELLOW}Installing system dependencies (Docker, Certbot, UFW, Cron)...${NC}"
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron
 
 if ! command -v docker &> /dev/null; then
     sudo install -m 0755 -d /etc/apt/keyrings
@@ -63,6 +64,7 @@ fi
 
 # 3. User Input
 # -----------------------------------------------------------------------------
+echo -e "${GREEN}Interactive Configuration${NC}"
 read -p "Enter your main Domain or IP: " MAIN_DOMAIN
 read -p "Enter Admin email: " ADMIN_EMAIL
 echo "1) Subdomains (e.g., n8n.example.com)"
@@ -93,11 +95,7 @@ echo "filesuser:$SFTP_FILES_PASS:$FILES_UID:$FILES_UID:my_ftp_files" | sudo tee 
 
 sudo chown -R webuser:webuser $DEPLOY_ROOT/data/web_root
 sudo chown -R filesuser:filesuser $DEPLOY_ROOT/data/ftp_storage
-
-# Adjust data permissions for Docker non-root users
-# n8n uses UID 1000
 sudo mkdir -p $DEPLOY_ROOT/data/n8n && sudo chown -R 1000:1000 $DEPLOY_ROOT/data/n8n
-# Activepieces uses root by default in some versions, but let's ensure it's writable
 sudo mkdir -p $DEPLOY_ROOT/data/activepieces && sudo chmod -R 777 $DEPLOY_ROOT/data/activepieces
 
 # 6. Environment Files
@@ -156,9 +154,9 @@ sed -i "s/__AP_DOMAIN__/ap.$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.con
 sed -i "s/__HUGINN_DOMAIN__/huginn.$MAIN_DOMAIN/g" $DEPLOY_ROOT/proxy/conf.d/default.conf
 
 if [ "$SSL_CHOICE" == "1" ]; then
-    $DEPLOY_ROOT/scripts/ssl_setup.sh letsencrypt "$MAIN_DOMAIN" "$ADMIN_EMAIL" "$ACCESS_CHOICE"
+    sudo $DEPLOY_ROOT/scripts/ssl_setup.sh letsencrypt "$MAIN_DOMAIN" "$ADMIN_EMAIL" "$ACCESS_CHOICE"
 elif [ "$SSL_CHOICE" == "2" ]; then
-    $DEPLOY_ROOT/scripts/ssl_setup.sh selfsigned "$MAIN_DOMAIN"
+    sudo $DEPLOY_ROOT/scripts/ssl_setup.sh selfsigned "$MAIN_DOMAIN"
 fi
 
 cp $DEPLOY_ROOT/templates/index.php $DEPLOY_ROOT/data/web_root/index.php
@@ -167,7 +165,23 @@ cp $DEPLOY_ROOT/templates/index.php $DEPLOY_ROOT/data/web_root/index.php
 # -----------------------------------------------------------------------------
 sudo docker network create deploy-network || true
 cd $DEPLOY_ROOT/db && sudo docker compose up -d
-echo "Waiting for databases..." && sleep 15
+
+echo -e "${YELLOW}Waiting for databases to be ready...${NC}"
+# Improved health check for MariaDB
+RETRIES=10
+until sudo docker exec mariadb-db mariadb-admin ping -p"$DB_ROOT_PASS" --silent || [ $RETRIES -eq 0 ]; do
+    echo "Waiting for MariaDB... ($RETRIES retries left)"
+    sleep 5
+    RETRIES=$((RETRIES-1))
+done
+
+# Improved health check for Postgres
+RETRIES=10
+until sudo docker exec postgres-db pg_isready -U admin || [ $RETRIES -eq 0 ]; do
+    echo "Waiting for PostgreSQL... ($RETRIES retries left)"
+    sleep 5
+    RETRIES=$((RETRIES-1))
+done
 
 # MariaDB Init
 sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS web_app_db;"
@@ -176,7 +190,6 @@ sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "GRANT ALL P
 sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "FLUSH PRIVILEGES;"
 
 # Postgres Init
-export PGPASSWORD="$DB_ROOT_PASS"
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;" || true
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS';" || true
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;" || true
@@ -187,6 +200,7 @@ sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS';" || true
 sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;" || true
 
+echo -e "${YELLOW}Starting applications...${NC}"
 cd $DEPLOY_ROOT/webserver && sudo docker compose build && sudo docker compose up -d
 cd $DEPLOY_ROOT/automation && sudo docker compose up -d
 cd $DEPLOY_ROOT/storage && sudo docker compose up -d
@@ -215,7 +229,7 @@ sudo chmod 600 $DEPLOY_ROOT/credentials.txt
 
 # 11. Cron
 # -----------------------------------------------------------------------------
-(sudo crontab -l 2>/dev/null; echo "0 2 * * 0 $DEPLOY_ROOT/scripts/backup.sh >> $DEPLOY_ROOT/backups/backup.log 2>&1") | sudo crontab -
+(sudo crontab -l 2>/dev/null; echo "0 2 * * 0 $DEPLOY_ROOT/scripts/backup.sh >> $DEPLOY_ROOT/backups/backup.log 2>&1") | sudo crontab - || true
 
 echo -e "\n${GREEN}Setup Complete! Credentials in $DEPLOY_ROOT/credentials.txt${NC}"
 sudo cat $DEPLOY_ROOT/credentials.txt
