@@ -85,7 +85,20 @@ fi
 # Phase 2: Dependencies
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 2] Installing system dependencies (Docker, SSL, Cron)...${NC}"
-sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron
+sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron lsof
+
+# Early Firewall Configuration (Critical for OCI)
+echo -e "${YELLOW}[Step 2.1] Opening ports 80/443/22 in local firewall...${NC}"
+# Insert rules at top of iptables to bypass OCI default REJECT rules
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT || true
+sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT || true
+sudo iptables -I INPUT -p tcp --dport 22 -j ACCEPT || true
+# Configure UFW
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw allow 2222/tcp
+echo "y" | sudo ufw enable
 
 if ! command -v docker &> /dev/null; then
     sudo install -m 0755 -d /etc/apt/keyrings
@@ -211,16 +224,35 @@ for i in {1..24}; do
 done
 
 # DB Inits
-sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "CREATE DATABASE IF NOT EXISTS web_app_db; CREATE USER IF NOT EXISTS 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS'; GRANT ALL PRIVILEGES ON web_app_db.* TO 'web_app_user'@'%'; FLUSH PRIVILEGES;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS';" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE activepieces;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER ap_user WITH PASSWORD '$AP_DB_PASS';" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE activepieces TO ap_user;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE huginn;" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS';" || true
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;" || true
+echo "Setting up databases and users..."
+# MariaDB
+sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "
+    CREATE DATABASE IF NOT EXISTS web_app_db;
+    CREATE USER IF NOT EXISTS 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS';
+    ALTER USER 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS';
+    GRANT ALL PRIVILEGES ON web_app_db.* TO 'web_app_user'@'%';
+    FLUSH PRIVILEGES;
+"
+
+# PostgreSQL
+export PGPASSWORD="$DB_ROOT_PASS"
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'n8n'" | grep -q 1 || \
+    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;"
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'n8n_user') THEN CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS'; END IF; END \$\$;"
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;"
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'activepieces'" | grep -q 1 || \
+    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE activepieces;"
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'ap_user') THEN CREATE USER ap_user WITH PASSWORD '$AP_DB_PASS'; END IF; END \$\$;"
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE activepieces TO ap_user;"
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'huginn'" | grep -q 1 || \
+    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE huginn;"
+
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'huginn_user') THEN CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS'; END IF; END \$\$;"
+sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;"
 
 cd $DEPLOY_ROOT/webserver && sudo docker compose up -d --build
 cd $DEPLOY_ROOT/automation && sudo docker compose up -d
@@ -229,9 +261,16 @@ cd $DEPLOY_ROOT/proxy && sudo docker compose up -d
 
 # Final: Firewall & Credentials
 # -----------------------------------------------------------------------------
-echo -e "${YELLOW}[Final] Enabling Firewall...${NC}"
+echo -e "${YELLOW}[Final] Updating Firewall...${NC}"
+sudo iptables -I INPUT -p tcp --dport 2222 -j ACCEPT || true
 sudo ufw allow 22/tcp; sudo ufw allow 80/tcp; sudo ufw allow 443/tcp; sudo ufw allow 2222/tcp
-[ "$ACCESS_CHOICE" == "2" ] && (sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp)
+if [ "$ACCESS_CHOICE" == "2" ]; then
+    sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp
+    sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 5678 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT || true
+    sudo iptables -I INPUT -p tcp --dport 3000 -j ACCEPT || true
+fi
 echo "y" | sudo ufw enable
 
 cat <<EOF | sudo tee $DEPLOY_ROOT/credentials.txt > /dev/null
