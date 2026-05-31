@@ -200,6 +200,8 @@ sudo docker logs --tail=100 huginn-automation
 sudo docker logs --tail=100 nginx-proxy
 ```
 
+Huginn is a Rails application and can take longer to boot than the other tools. The installer gives Huginn its own memory limit and writes the required Huginn domain/database settings; after updating an existing server, re-run `sudo ./setup.sh`, wait 2-3 minutes, then check `sudo docker ps --filter name=huginn-automation` and `sudo docker logs --tail=100 huginn-automation` if `https://yourdomain.com:3000/` still returns 502.
+
 For SFTP timeouts, verify both the container and network path:
 
 ```bash

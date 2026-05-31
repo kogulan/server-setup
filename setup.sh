@@ -182,7 +182,7 @@ esac
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 if [ "$TOTAL_RAM" -lt 2000 ]; then
     echo -e "${YELLOW}Detected ${TOTAL_RAM}MB RAM. Enabling Swap and strict container limits...${NC}"
-    DB_LIMIT="512M"; AUTO_LIMIT="512M"; PHP_LIMIT="256M"
+    DB_LIMIT="512M"; AUTO_LIMIT="512M"; HUGINN_LIMIT="1G"; PHP_LIMIT="256M"
     REDIS_CMD="redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru"
     if [ ! -f /swapfile ]; then
         sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
@@ -190,7 +190,7 @@ if [ "$TOTAL_RAM" -lt 2000 ]; then
     fi
 else
     echo -e "${GREEN}Detected ${TOTAL_RAM}MB RAM. Using standard performance settings.${NC}"
-    DB_LIMIT="2G"; AUTO_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
+    DB_LIMIT="2G"; AUTO_LIMIT="2G"; HUGINN_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
 fi
 
 # Phase 2: Dependencies
@@ -313,6 +313,7 @@ PROTO="http"; [ "$SSL_CHOICE" != "3" ] && PROTO="https"
 BASE_URL="$PROTO://$MAIN_DOMAIN"
 AP_URL="$BASE_URL:8081"; [ "$ACCESS_CHOICE" == "1" ] && AP_URL="$PROTO://ap.$MAIN_DOMAIN"
 N8N_WEBHOOK_URL="$BASE_URL:5678/"; [ "$ACCESS_CHOICE" == "1" ] && N8N_WEBHOOK_URL="$PROTO://n8n.$MAIN_DOMAIN/"
+HUGINN_DOMAIN="$MAIN_DOMAIN:3000"; [ "$ACCESS_CHOICE" == "1" ] && HUGINN_DOMAIN="huginn.$MAIN_DOMAIN"
 
 cat <<EOF | sudo tee "$DEPLOY_ROOT/db/.env" > /dev/null
 POSTGRES_USER=admin
@@ -324,6 +325,7 @@ EOF
 
 cat <<EOF | sudo tee "$DEPLOY_ROOT/automation/.env" > /dev/null
 AUTOMATION_MEMORY_LIMIT=$AUTO_LIMIT
+HUGINN_MEMORY_LIMIT=$HUGINN_LIMIT
 N8N_DB=n8n
 N8N_DB_USER=n8n_user
 N8N_DB_PASS=$N8N_DB_PASS
@@ -342,6 +344,7 @@ HUGINN_DB_USER=huginn_user
 HUGINN_DB_PASS=$HUGINN_DB_PASS
 HUGINN_APP_SECRET_TOKEN=$HUGINN_APP_SECRET_TOKEN
 HUGINN_INVITATION_CODE=$HUGINN_INVITATION_CODE
+HUGINN_DOMAIN=$HUGINN_DOMAIN
 HUGINN_PORT_EXTERNAL=3000
 EOF
 
