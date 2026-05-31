@@ -1,110 +1,418 @@
-# 🚀 OCI Production-Ready Deployment Package
+# Containerized Server Setup Guide
 
-Welcome! If you've ever wanted to host your own automation tools, a website, and secure storage without the headache of manual configuration, you're in the right place.
+This repository installs a small self-hosting stack under `/opt/deploy` using Docker Compose. It is designed for Ubuntu 24.04 servers, including Oracle Cloud Infrastructure (OCI), and can be re-run safely when you need to repair or refresh the deployment.
 
-This package is designed for **Oracle Cloud Infrastructure (OCI)** (specifically Ubuntu 24.04), but it works on almost any modern Linux server. It's built to be as close to "one-click" as possible, handling all the technical heavy lifting for you.
+## What gets installed
 
----
+| Component | Purpose | Default internal container |
+| --- | --- | --- |
+| Nginx reverse proxy | Public web entry point for all web tools | `nginx-proxy` |
+| PHP 8.3 web server | Hosts files from `/opt/deploy/data/web_root` | `php-webserver` |
+| PostgreSQL 16 | Database for n8n, Activepieces, and Huginn | `postgres-db` |
+| MariaDB LTS | Database for the PHP/web app | `mariadb-db` |
+| Adminer | Browser-based database administration | `adminer` |
+| n8n | Workflow automation | `n8n-automation` |
+| Activepieces | Workflow automation | `activepieces-automation` |
+| Huginn | Web monitoring/agent automation | `huginn-automation` |
+| Redis | Queue/cache service for automation apps | `redis` |
+| SFTP | Secure file uploads for web and storage files | `sftp-server` |
 
-## 📦 What's inside the box?
+## Before you begin
 
-We’ve bundled some of the best open-source tools to help you automate your life and host your projects:
+### Server requirements
 
-*   **[n8n](https://n8n.io/)**: A powerful workflow automation tool. Think of it as a self-hosted Zapier. Connect your apps and automate tasks without writing code.
-*   **[Activepieces](https://www.activepieces.com/)**: Another fantastic automation platform that's incredibly easy to use and great for business processes.
-*   **[Huginn](https://github.com/huginn/huginn)**: Like your own personal agent. It can watch the web for you, scrape data, and send you alerts.
-*   **[Adminer](https://www.adminer.org/)**: A lightweight, single-file database management tool. It makes managing your databases (PostgreSQL & MariaDB) a breeze.
-*   **Secure SFTP**: A safe way to upload and download files to your server (replaces old, insecure FTP).
-*   **PHP 8.3 Webserver**: Ready to host your website or landing pages.
+- Ubuntu 24.04 minimal or similar modern Ubuntu release.
+- A user with `sudo` access.
+- At least 1 GB RAM. Servers below 2 GB RAM automatically get a 4 GB swap file and stricter container memory limits.
+- A public IP address.
+- Optional but recommended: a domain name pointed to the server.
 
----
+### Required ports
 
-## 🛠 How it Works (The "Magic" Explained)
+Open these ports in your cloud firewall/security list and on any external firewall:
 
-You don't need to be a DevOps pro to use this, but here is what happens under the hood:
+| Port | Required for |
+| --- | --- |
+| `22/tcp` | SSH administration |
+| `80/tcp` | HTTP and Let's Encrypt validation |
+| `443/tcp` | HTTPS |
+| `2222/tcp` | SFTP uploads |
+| `8080/tcp` | Adminer, only when using port-based access |
+| `5678/tcp` | n8n, only when using port-based access |
+| `8081/tcp` | Activepieces, only when using port-based access |
+| `3000/tcp` | Huginn, only when using port-based access |
 
-1.  **Shared Network**: All services live in a private "Docker network." This means they can talk to each other securely without being exposed to the whole internet.
-2.  **Traffic Control (Nginx)**: We use Nginx as a "Reverse Proxy." It sits at the front door, takes incoming requests (like `n8n.yourdomain.com`), and points them to the right tool.
-3.  **Smart Databases**: Instead of every tool having its own database, we use two powerful shared instances (PostgreSQL for automation tools, MariaDB for your web app). This saves memory and makes backups easier!
-4.  **Auto-Tuning**: If your server has less than 2GB of RAM, our script automatically sets up a **4GB Swap file** and puts the services on a "diet" so they don't crash your server.
-5.  **Always Secure**: All your passwords are randomly generated and never stored in plain sight. Plus, we use Let's Encrypt to give you those shiny green padlocks (SSL) for free.
+The setup script also configures UFW and inserts local iptables allow rules, but cloud firewall rules must still be configured in your provider console.
 
----
+### DNS options
 
-## 📥 Getting the Code
+Choose one access style before installation:
 
-First, you need to get these files onto your server. Open your terminal (or use OCI Cloud Shell) and follow these steps:
+1. **Subdomains**: recommended for a real domain.
+   - `yourdomain.com` → web site
+   - `db.yourdomain.com` → Adminer
+   - `n8n.yourdomain.com` → n8n
+   - `ap.yourdomain.com` → Activepieces
+   - `huginn.yourdomain.com` → Huginn
+2. **Ports**: useful for IP-only setups or quick tests.
+   - `http(s)://SERVER:8080` → Adminer
+   - `http(s)://SERVER:5678` → n8n
+   - `http(s)://SERVER:8081` → Activepieces
+   - `http(s)://SERVER:3000` → Huginn
 
-### Option A: Using a GitHub Token (Easiest for beginners)
-1.  Go to your GitHub [Fine-grained personal access tokens](https://github.com/settings/tokens?type=beta) and create a token with "Contents" read access.
-2.  On your server, run:
-    ```bash
-    git clone https://<your-token>@github.com/username/repository-name.git /opt/deploy
-    ```
+For Let's Encrypt, DNS records must already point to the server and port `80/tcp` must be reachable from the internet.
 
-### Option B: Using SSH Keys (More secure)
-1.  Check if you have an SSH key: `cat ~/.ssh/id_rsa.pub`. If not, create one with `ssh-keygen`.
-2.  Copy the output and add it to your [GitHub SSH Keys](https://github.com/settings/keys).
-3.  Run:
-    ```bash
-    git clone git@github.com:username/repository-name.git /opt/deploy
-    ```
+## Fresh installation
 
----
+### 1. Copy the project to the server
 
-## 🚀 Quick Start Guide
+Use Git, SCP, or your preferred deployment method. The final deployment directory should be `/opt/deploy`.
 
-Ready to go? Follow these 3 simple steps:
+```bash
+sudo mkdir -p /opt/deploy
+sudo chown "$USER:$USER" /opt/deploy
+git clone <your-repository-url> /opt/deploy
+```
 
-1.  **Move to the folder**:
-    ```bash
-    cd /opt/deploy
-    ```
-2.  **Make the script executable**:
-    ```bash
-    sudo chmod +x setup.sh
-    ```
-3.  **Run the Orchestrator**:
-    ```bash
-    sudo ./setup.sh
-    ```
+If you cloned somewhere else, that is also supported. Running `setup.sh` from another checkout synchronizes the deployment files into `/opt/deploy` automatically.
 
-**What happens next?** The script will ask you for your domain name and email. Then, it will generate secure passwords, set up SSL (HTTPS), and start all your services. Grab a coffee—it takes about 2–5 minutes!
+### 2. Run the installer
 
-> **Pro Tip:** If the script ever stops or your connection drops, don't worry! Just run the `sudo ./setup.sh` command again. It’s smart enough to pick up right where it left off.
+```bash
+cd /opt/deploy
+sudo chmod +x setup.sh scripts/*.sh
+sudo ./setup.sh
+```
 
----
+The script asks for:
 
-## 🛡 OCI Firewall (Crucial Step!)
+- Main domain or server IP.
+- Admin email for certificate notifications.
+- Access mode: subdomains or ports.
+- SSL mode: Let's Encrypt, self-signed, or HTTP-only.
 
-For your services to be reachable, you **must** tell Oracle to let traffic through. In your OCI Cloud Console, open these ports in the "Security List":
+### 3. Wait for completion
 
-*   **Web Browsing**: `80` (HTTP) and `443` (HTTPS)
-*   **File Transfer (SFTP)**: `2222`
-*   **Direct Access (if not using subdomains)**: `8080`, `5678`, `8081`, `3000`
+The script performs these phases:
 
----
+1. Creates `/opt/deploy` directories.
+2. Loads or creates `/opt/deploy/.env`.
+3. Installs Docker, Compose plugin, Certbot, UFW, cron, and helper packages.
+4. Generates persistent passwords.
+5. Writes service `.env` files.
+6. Configures Nginx templates and SSL certificates.
+7. Starts databases and verifies real database login.
+8. Creates application databases and users.
+9. Starts web, automation, storage, and proxy containers.
+10. Writes `/opt/deploy/credentials.txt`.
+11. Installs a weekly backup cron job.
 
-## 📂 Where to find your stuff
+### 4. Save credentials immediately
 
-*   **Passwords**: Everything is saved in `/opt/deploy/credentials.txt`. **Keep this safe!**
-*   **Your Website Files**: Upload your HTML/PHP files to `/opt/deploy/data/web_root/`.
-*   **Backups**: Found in `/opt/deploy/backups/`. We automatically back up your databases every week and keep the last 7 days of history.
-*   **Logs**: If something goes wrong, check `/opt/deploy/data/nginx/` for web logs.
+After a successful run, read and save the credential file:
 
----
+```bash
+sudo cat /opt/deploy/credentials.txt
+```
 
-## 🤝 Contributing, Support & License
+The file is permission-restricted and contains database, SFTP, and Huginn invitation credentials.
 
-### Contributing
-Found a bug or have a suggestion? Feel free to open an **Issue** or submit a **Pull Request**. We love community help!
+## Re-running or repairing setup
 
-### Support
-If you're stuck, please check the [Troubleshooting] section in the script output or open a GitHub Issue.
+The installer is intended to be re-runnable:
 
-### License
-This project is licensed under the **MIT License**. You are free to use, copy, and modify it however you like!
+```bash
+cd /opt/deploy
+sudo ./setup.sh
+```
 
----
+It preserves existing generated secrets from the service `.env` files and reuses existing Docker data directories.
 
-*Made with ❤️ for the self-hosting community.*
+### Fix for `ERROR 1045 (28000): Access denied for user 'root'@'localhost'`
+
+This error usually means MariaDB already had a data directory initialized with a different root password than the one in `/opt/deploy/db/.env`. The setup script now verifies an actual MariaDB login instead of only checking that the server process is alive. It also tries common recoverable passwords, including the current generated password, the container environment password, and the old default `password`. When one of those works, the script synchronizes MariaDB back to the generated password in `/opt/deploy/db/.env` and continues.
+
+If the error still appears, the old MariaDB root password is unknown. Choose one of these paths:
+
+#### Fresh install / no data to keep
+
+This resets only MariaDB data. PostgreSQL and uploaded files are not removed by these commands.
+
+```bash
+cd /opt/deploy/db
+sudo docker compose down
+sudo mv /opt/deploy/data/mariadb "/opt/deploy/data/mariadb.bak.$(date +%Y%m%d%H%M%S)"
+sudo mkdir -p /opt/deploy/data/mariadb
+cd /opt/deploy
+sudo ./setup.sh
+```
+
+#### Existing server / data must be kept
+
+Do not delete `/opt/deploy/data/mariadb`. Find the previous MariaDB root password from an older `/opt/deploy/db/.env`, backup, password manager, or deployment notes. After you can log in, update `/opt/deploy/db/.env` to match or manually reset the MariaDB root password, then re-run:
+
+```bash
+cd /opt/deploy
+sudo ./setup.sh
+```
+
+## Accessing services after installation
+
+### Subdomain mode
+
+| Service | URL |
+| --- | --- |
+| Website | `https://yourdomain.com` |
+| Adminer | `https://db.yourdomain.com` |
+| n8n | `https://n8n.yourdomain.com` |
+| Activepieces | `https://ap.yourdomain.com` |
+| Huginn | `https://huginn.yourdomain.com` |
+
+### Port mode
+
+| Service | URL |
+| --- | --- |
+| Website | `https://yourdomain.com` or `https://SERVER_IP` |
+| Adminer | `https://yourdomain.com:8080` or `https://SERVER_IP:8080` |
+| n8n | `https://yourdomain.com:5678` or `https://SERVER_IP:5678` |
+| Activepieces | `https://yourdomain.com:8081` or `https://SERVER_IP:8081` |
+| Huginn | `https://yourdomain.com:3000` or `https://SERVER_IP:3000` |
+
+If you selected HTTP-only, replace `https://` with `http://`.
+
+## Adminer database login guide
+
+Open Adminer and use these server names:
+
+### MariaDB web database
+
+- System: `MySQL` or `MariaDB`
+- Server: `mariadb-db`
+- Username: `web_app_user`
+- Password: value shown for `Web App DB` in `/opt/deploy/credentials.txt`
+- Database: `web_app_db`
+
+### PostgreSQL automation databases
+
+- System: `PostgreSQL`
+- Server: `postgres-db`
+- Username: `admin`
+- Password: value shown for `PostgreSQL Admin` in `/opt/deploy/credentials.txt`
+- Database: `n8n`, `activepieces`, or `huginn`
+
+## Uploading files with SFTP
+
+SFTP runs on port `2222`.
+
+### Website files
+
+Use the `webuser` credentials from `/opt/deploy/credentials.txt`:
+
+```bash
+sftp -P 2222 webuser@yourdomain.com
+```
+
+Files uploaded to `web_root` appear in:
+
+```text
+/opt/deploy/data/web_root
+```
+
+### General storage files
+
+Use the `filesuser` credentials from `/opt/deploy/credentials.txt`:
+
+```bash
+sftp -P 2222 filesuser@yourdomain.com
+```
+
+Files uploaded to `my_ftp_files` appear in:
+
+```text
+/opt/deploy/data/ftp_storage
+```
+
+## Daily operations
+
+### Check running containers
+
+```bash
+sudo docker ps
+```
+
+### View logs
+
+```bash
+sudo docker logs nginx-proxy --tail=100
+sudo docker logs mariadb-db --tail=100
+sudo docker logs postgres-db --tail=100
+sudo docker logs n8n-automation --tail=100
+sudo docker logs activepieces-automation --tail=100
+sudo docker logs huginn-automation --tail=100
+```
+
+### Restart one service
+
+```bash
+sudo docker restart nginx-proxy
+sudo docker restart mariadb-db
+sudo docker restart postgres-db
+```
+
+### Restart one compose group
+
+```bash
+cd /opt/deploy/proxy && sudo docker compose up -d
+cd /opt/deploy/db && sudo docker compose up -d
+cd /opt/deploy/automation && sudo docker compose up -d
+cd /opt/deploy/webserver && sudo docker compose up -d --build
+cd /opt/deploy/storage && sudo docker compose up -d
+```
+
+### Stop the stack
+
+```bash
+cd /opt/deploy/proxy && sudo docker compose down
+cd /opt/deploy/storage && sudo docker compose down
+cd /opt/deploy/automation && sudo docker compose down
+cd /opt/deploy/webserver && sudo docker compose down
+cd /opt/deploy/db && sudo docker compose down
+```
+
+### Start the stack again
+
+```bash
+sudo docker network create deploy-network || true
+cd /opt/deploy/db && sudo docker compose up -d
+cd /opt/deploy/webserver && sudo docker compose up -d --build
+cd /opt/deploy/automation && sudo docker compose up -d
+cd /opt/deploy/storage && sudo docker compose up -d
+cd /opt/deploy/proxy && sudo docker compose up -d
+```
+
+## Backups
+
+The installer adds this cron job:
+
+```text
+0 2 * * 0 /opt/deploy/scripts/backup.sh >> /opt/deploy/backups/backup.log 2>&1
+```
+
+Backups are written to `/opt/deploy/backups` and retained for 7 days by default.
+
+Run a manual backup:
+
+```bash
+sudo /opt/deploy/scripts/backup.sh
+```
+
+Backup contents include:
+
+- Full PostgreSQL dump.
+- Full MariaDB dump.
+- File archive of `/opt/deploy/data`, excluding raw database directories.
+
+## Updating the deployment
+
+1. Pull or copy the latest repository files.
+2. Re-run setup.
+
+```bash
+cd /opt/deploy
+git pull
+sudo ./setup.sh
+```
+
+If your repository is not in `/opt/deploy`, run the updated `setup.sh` from the checkout. It copies the current service files into `/opt/deploy` before continuing.
+
+## Important file locations
+
+| Path | Purpose |
+| --- | --- |
+| `/opt/deploy/.env` | Main installer choices and SFTP passwords |
+| `/opt/deploy/db/.env` | PostgreSQL and MariaDB root credentials used by Compose |
+| `/opt/deploy/automation/.env` | n8n, Activepieces, and Huginn settings |
+| `/opt/deploy/webserver/.env` | PHP/web database settings |
+| `/opt/deploy/credentials.txt` | Human-readable generated credentials |
+| `/opt/deploy/data/web_root` | Website files |
+| `/opt/deploy/data/ftp_storage` | General SFTP storage |
+| `/opt/deploy/data/postgres` | PostgreSQL persistent data |
+| `/opt/deploy/data/mariadb` | MariaDB persistent data |
+| `/opt/deploy/proxy/conf.d/default.conf` | Generated Nginx configuration |
+| `/opt/deploy/proxy/certs` | Certificates used by Nginx |
+| `/opt/deploy/backups` | Backup output |
+
+## Troubleshooting checklist
+
+### Website or tools do not load
+
+1. Confirm containers are running:
+   ```bash
+   sudo docker ps
+   ```
+2. Confirm cloud firewall ports are open.
+3. Confirm local firewall rules:
+   ```bash
+   sudo ufw status
+   ```
+4. Check Nginx logs:
+   ```bash
+   sudo docker logs nginx-proxy --tail=100
+   ```
+5. For subdomain mode, verify DNS records point to the server IP.
+
+### Let's Encrypt fails
+
+- Confirm `A` records point to the server.
+- Confirm port `80/tcp` is open in the cloud firewall.
+- Stop other host web servers if needed:
+  ```bash
+  sudo systemctl stop nginx apache2 2>/dev/null || true
+  ```
+- Re-run setup:
+  ```bash
+  cd /opt/deploy
+  sudo ./setup.sh
+  ```
+
+### Database login fails
+
+Check the generated password:
+
+```bash
+sudo cat /opt/deploy/credentials.txt
+sudo cat /opt/deploy/db/.env
+```
+
+Verify MariaDB directly:
+
+```bash
+DB_ROOT_PASS=$(sudo awk -F= '/^MARIADB_ROOT_PASSWORD=/{print $2}' /opt/deploy/db/.env)
+sudo docker exec -i mariadb-db mariadb -u root --password="$DB_ROOT_PASS" -e "SELECT 1;"
+```
+
+Verify PostgreSQL directly:
+
+```bash
+DB_ROOT_PASS=$(sudo awk -F= '/^POSTGRES_PASSWORD=/{print $2}' /opt/deploy/db/.env)
+sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1;"
+```
+
+### Low-memory server becomes slow
+
+The installer enables swap on servers under 2 GB RAM. You can inspect memory with:
+
+```bash
+free -h
+sudo docker stats
+```
+
+If automation tools are still slow, use a larger VM or stop tools you do not need.
+
+## Security notes
+
+- Keep `/opt/deploy/credentials.txt` private.
+- Prefer Let's Encrypt over self-signed certificates for public domains.
+- Do not expose database ports directly to the internet; this stack keeps database containers on the private Docker network.
+- Keep Ubuntu and Docker updated with regular system maintenance.
+- Back up `/opt/deploy/credentials.txt`, service `.env` files, and `/opt/deploy/backups` to a safe off-server location.

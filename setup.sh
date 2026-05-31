@@ -44,6 +44,69 @@ replace_token() {
     sudo sed -i "s/${token}/${escaped_value}/g" "$file"
 }
 
+
+mariadb_can_auth_with_password() {
+    local password="$1"
+    sudo docker exec -i mariadb-db mariadb -u root --password="$password" -e "SELECT 1;" >/dev/null 2>&1
+}
+
+mariadb_can_auth_empty() {
+    sudo docker exec -i mariadb-db mariadb -u root -e "SELECT 1;" >/dev/null 2>&1
+}
+
+discover_mariadb_root_auth() {
+    MARIADB_ROOT_AUTH_MODE=""
+    MARIADB_ROOT_WORKING_PASS=""
+    local candidates=()
+    candidates+=("$DB_ROOT_PASS")
+    local container_env_pass
+    container_env_pass=$(sudo docker exec mariadb-db printenv MARIADB_ROOT_PASSWORD 2>/dev/null || true)
+    [ -n "$container_env_pass" ] && candidates+=("$container_env_pass")
+    candidates+=("password")
+
+    local seen="|"
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        [ -z "$candidate" ] && continue
+        case "$seen" in *"|$candidate|"*) continue ;; esac
+        seen="${seen}${candidate}|"
+        if mariadb_can_auth_with_password "$candidate"; then
+            MARIADB_ROOT_AUTH_MODE="password"
+            MARIADB_ROOT_WORKING_PASS="$candidate"
+            return 0
+        fi
+    done
+
+    if mariadb_can_auth_empty; then
+        MARIADB_ROOT_AUTH_MODE="empty"
+        return 0
+    fi
+
+    return 1
+}
+
+mariadb_root_exec() {
+    local sql="$1"
+    if [ "${MARIADB_ROOT_AUTH_MODE:-}" = "empty" ]; then
+        sudo docker exec -i mariadb-db mariadb -u root -e "$sql"
+    else
+        sudo docker exec -i mariadb-db mariadb -u root --password="$MARIADB_ROOT_WORKING_PASS" -e "$sql"
+    fi
+}
+
+sync_mariadb_root_password() {
+    if [ "${MARIADB_ROOT_AUTH_MODE:-}" = "empty" ] || [ "${MARIADB_ROOT_WORKING_PASS:-}" != "$DB_ROOT_PASS" ]; then
+        echo "Synchronizing MariaDB root password with $DEPLOY_ROOT/db/.env..."
+        mariadb_root_exec "
+            ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PASS';
+            ALTER USER IF EXISTS 'root'@'%' IDENTIFIED BY '$DB_ROOT_PASS';
+            FLUSH PRIVILEGES;
+        "
+        MARIADB_ROOT_AUTH_MODE="password"
+        MARIADB_ROOT_WORKING_PASS="$DB_ROOT_PASS"
+    fi
+}
+
 # Phase 0: Pre-flight Checks
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 0] Pre-flight checks (fixing filesystem conflicts)...${NC}"
@@ -323,18 +386,34 @@ sudo docker network create deploy-network || true
 cd "$DEPLOY_ROOT/db" && sudo docker compose up -d
 
 echo -e "Waiting for databases (up to 2 mins)..."
+DATABASES_READY=0
 for i in {1..24}; do
-    if sudo docker exec mariadb-db mariadb-admin ping -p"$DB_ROOT_PASS" --silent && \
+    if discover_mariadb_root_auth && \
        sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin -q; then
-        echo -e "${GREEN}Databases verified.${NC}"; break
+        DATABASES_READY=1
+        echo -e "${GREEN}Databases verified.${NC}"
+        break
     fi
     sleep 5
 done
 
+if [ "$DATABASES_READY" -ne 1 ]; then
+    echo -e "${RED}Database verification failed.${NC}"
+    echo "MariaDB did not accept the generated root password from $DEPLOY_ROOT/db/.env."
+    echo "This usually means $DEPLOY_ROOT/data/mariadb already contains data initialized with an unknown old password."
+    echo "If this is a fresh install and you do not need that old data, run:"
+    echo "  cd $DEPLOY_ROOT/db && sudo docker compose down"
+    echo "  sudo mv $DEPLOY_ROOT/data/mariadb $DEPLOY_ROOT/data/mariadb.bak.$(date +%Y%m%d%H%M%S)"
+    echo "  sudo mkdir -p $DEPLOY_ROOT/data/mariadb"
+    echo "  sudo ./setup.sh"
+    exit 1
+fi
+sync_mariadb_root_password
+
 # DB Inits
 echo "Setting up databases and users..."
 # MariaDB
-sudo docker exec -i mariadb-db mariadb -u root -p"$DB_ROOT_PASS" -e "
+mariadb_root_exec "
     CREATE DATABASE IF NOT EXISTS web_app_db;
     CREATE USER IF NOT EXISTS 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS';
     ALTER USER 'web_app_user'@'%' IDENTIFIED BY '$WEB_DB_PASS';
@@ -385,7 +464,8 @@ cat <<EOF | sudo tee "$DEPLOY_ROOT/credentials.txt" > /dev/null
 ================================================================
 OCI DEPLOYMENT CREDENTIALS
 ================================================================
-Postgres/MariaDB Root: admin / $DB_ROOT_PASS
+PostgreSQL Admin: admin / $DB_ROOT_PASS
+MariaDB Root: root / $DB_ROOT_PASS
 Web App DB: web_app_user / $WEB_DB_PASS (DB: web_app_db)
 SFTP (Port 2222):
   Web Root: webuser / $SFTP_WEB_PASS
