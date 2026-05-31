@@ -24,6 +24,8 @@ $web_server_version = $_SERVER['SERVER_SOFTWARE'];
 $php_version = PHP_VERSION;
 $host_name = $_SERVER['HTTP_HOST'];
 $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+$access_choice = getenv('ACCESS_CHOICE') ?: '';
+
 
 // Database Credentials from Environment
 $mariadb_host = 'mariadb-db';
@@ -39,18 +41,22 @@ $postgres_db   = 'postgres';
 $mariadb_status = get_db_status('mariadb', $mariadb_host, $mariadb_user, $mariadb_pass, $mariadb_db);
 $postgres_status = get_db_status('postgres', $postgres_host, $postgres_user, $postgres_pass, $postgres_db);
 
-// Determine if we are using subdomains or ports based on the host name
-$is_port_access = (strpos($host_name, ':') !== false) || preg_match('/^\d+\.\d+\.\d+\.\d+$/', explode(':', $host_name)[0]);
+// Prefer the installer-selected access mode so the landing page matches the
+// generated nginx configuration. Fall back to host detection for older installs
+// that have not yet passed ACCESS_CHOICE into the PHP container.
+$is_port_access = $access_choice === '2';
+if ($access_choice !== '1' && $access_choice !== '2') {
+    $is_port_access = (strpos($host_name, ':') !== false) || preg_match('/^\d+\.\d+\.\d+\.\d+$/', explode(':', $host_name)[0]);
+}
 
 function get_service_url($base_proto, $base_host, $port, $subdomain) {
     global $is_port_access;
     $clean_host = explode(':', $base_host)[0];
     if ($is_port_access) {
         return "$base_proto://$clean_host:$port";
-    } else {
-        // Assuming the base_host is the main domain
-        return "$base_proto://$subdomain.$clean_host";
     }
+
+    return "$base_proto://$subdomain.$clean_host";
 }
 
 ?>

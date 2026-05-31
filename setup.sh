@@ -182,7 +182,7 @@ esac
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 if [ "$TOTAL_RAM" -lt 2000 ]; then
     echo -e "${YELLOW}Detected ${TOTAL_RAM}MB RAM. Enabling Swap and strict container limits...${NC}"
-    DB_LIMIT="512M"; AUTO_LIMIT="512M"; PHP_LIMIT="256M"
+    DB_LIMIT="512M"; AUTO_LIMIT="512M"; HUGINN_LIMIT="1G"; PHP_LIMIT="256M"
     REDIS_CMD="redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru"
     if [ ! -f /swapfile ]; then
         sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
@@ -190,7 +190,7 @@ if [ "$TOTAL_RAM" -lt 2000 ]; then
     fi
 else
     echo -e "${GREEN}Detected ${TOTAL_RAM}MB RAM. Using standard performance settings.${NC}"
-    DB_LIMIT="2G"; AUTO_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
+    DB_LIMIT="2G"; AUTO_LIMIT="2G"; HUGINN_LIMIT="2G"; PHP_LIMIT="1G"; REDIS_CMD="redis-server"
 fi
 
 # Phase 2: Dependencies
@@ -199,11 +199,12 @@ echo -e "${YELLOW}[Step 2] Installing system dependencies (Docker, SSL, Cron)...
 sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-release ufw certbot openssl cron lsof
 
 # Early Firewall Configuration (Critical for OCI)
-echo -e "${YELLOW}[Step 2.1] Opening ports 80/443/22 in local firewall...${NC}"
+echo -e "${YELLOW}[Step 2.1] Opening ports 80/443/22/2222 in local firewall...${NC}"
 # Insert rules at top of iptables to bypass OCI default REJECT rules
 sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT || true
 sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT || true
 sudo iptables -I INPUT -p tcp --dport 22 -j ACCEPT || true
+sudo iptables -I INPUT -p tcp --dport 2222 -j ACCEPT || true
 # Configure UFW
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
@@ -312,6 +313,7 @@ PROTO="http"; [ "$SSL_CHOICE" != "3" ] && PROTO="https"
 BASE_URL="$PROTO://$MAIN_DOMAIN"
 AP_URL="$BASE_URL:8081"; [ "$ACCESS_CHOICE" == "1" ] && AP_URL="$PROTO://ap.$MAIN_DOMAIN"
 N8N_WEBHOOK_URL="$BASE_URL:5678/"; [ "$ACCESS_CHOICE" == "1" ] && N8N_WEBHOOK_URL="$PROTO://n8n.$MAIN_DOMAIN/"
+HUGINN_DOMAIN="$MAIN_DOMAIN:3000"; [ "$ACCESS_CHOICE" == "1" ] && HUGINN_DOMAIN="huginn.$MAIN_DOMAIN"
 
 cat <<EOF | sudo tee "$DEPLOY_ROOT/db/.env" > /dev/null
 POSTGRES_USER=admin
@@ -323,6 +325,7 @@ EOF
 
 cat <<EOF | sudo tee "$DEPLOY_ROOT/automation/.env" > /dev/null
 AUTOMATION_MEMORY_LIMIT=$AUTO_LIMIT
+HUGINN_MEMORY_LIMIT=$HUGINN_LIMIT
 N8N_DB=n8n
 N8N_DB_USER=n8n_user
 N8N_DB_PASS=$N8N_DB_PASS
@@ -341,6 +344,7 @@ HUGINN_DB_USER=huginn_user
 HUGINN_DB_PASS=$HUGINN_DB_PASS
 HUGINN_APP_SECRET_TOKEN=$HUGINN_APP_SECRET_TOKEN
 HUGINN_INVITATION_CODE=$HUGINN_INVITATION_CODE
+HUGINN_DOMAIN=$HUGINN_DOMAIN
 HUGINN_PORT_EXTERNAL=3000
 EOF
 
@@ -351,6 +355,7 @@ POSTGRES_PASSWORD=$DB_ROOT_PASS
 WEB_DB_USER=web_app_user
 WEB_DB_PASS=$WEB_DB_PASS
 WEB_DB_NAME=web_app_db
+ACCESS_CHOICE=$ACCESS_CHOICE
 EOF
 
 sudo sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" "$DEPLOY_ROOT/automation/docker-compose.yml" || true
@@ -423,23 +428,25 @@ mariadb_root_exec "
 
 # PostgreSQL
 export PGPASSWORD="$DB_ROOT_PASS"
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'n8n'" | grep -q 1 || \
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE n8n;"
+psql_admin() {
+    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -v ON_ERROR_STOP=1 -U admin "$@"
+}
 
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'n8n_user') THEN CREATE USER n8n_user WITH PASSWORD '$N8N_DB_PASS'; END IF; END \$\$;"
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8n_user;"
+ensure_postgres_app_db() {
+    local db_name="$1"
+    local db_user="$2"
+    local db_pass="$3"
 
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'activepieces'" | grep -q 1 || \
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE activepieces;"
+    psql_admin -d postgres -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '$db_user') THEN CREATE USER $db_user WITH PASSWORD '$db_pass'; ELSE ALTER USER $db_user WITH PASSWORD '$db_pass'; END IF; END \$\$;"
+    psql_admin -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \
+        psql_admin -d postgres -c "CREATE DATABASE $db_name OWNER $db_user;"
+    psql_admin -d postgres -c "ALTER DATABASE $db_name OWNER TO $db_user; GRANT ALL PRIVILEGES ON DATABASE $db_name TO $db_user;"
+    psql_admin -d "$db_name" -c "ALTER SCHEMA public OWNER TO $db_user; GRANT ALL ON SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $db_user;"
+}
 
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'ap_user') THEN CREATE USER ap_user WITH PASSWORD '$AP_DB_PASS'; END IF; END \$\$;"
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE activepieces TO ap_user;"
-
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "SELECT 1 FROM pg_database WHERE datname = 'huginn'" | grep -q 1 || \
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "CREATE DATABASE huginn;"
-
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'huginn_user') THEN CREATE USER huginn_user WITH PASSWORD '$HUGINN_DB_PASS'; END IF; END \$\$;"
-sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -U admin -c "GRANT ALL PRIVILEGES ON DATABASE huginn TO huginn_user;"
+ensure_postgres_app_db "n8n" "n8n_user" "$N8N_DB_PASS"
+ensure_postgres_app_db "activepieces" "ap_user" "$AP_DB_PASS"
+ensure_postgres_app_db "huginn" "huginn_user" "$HUGINN_DB_PASS"
 
 cd "$DEPLOY_ROOT/webserver" && sudo docker compose up -d --build
 cd "$DEPLOY_ROOT/automation" && sudo docker compose up -d
@@ -467,7 +474,7 @@ OCI DEPLOYMENT CREDENTIALS
 PostgreSQL Admin: admin / $DB_ROOT_PASS
 MariaDB Root: root / $DB_ROOT_PASS
 Web App DB: web_app_user / $WEB_DB_PASS (DB: web_app_db)
-SFTP (Port 2222):
+SFTP (FileZilla protocol: SFTP, not FTP; Port 2222):
   Web Root: webuser / $SFTP_WEB_PASS
   Storage:  filesuser / $SFTP_FILES_PASS
 Huginn invitation code: $HUGINN_INVITATION_CODE

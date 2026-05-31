@@ -52,17 +52,35 @@ services:
     image: ghcr.io/huginn/huginn:latest
     container_name: huginn-automation
     restart: always
+    depends_on:
+      - redis
     environment:
+      - RAILS_ENV=production
+      - RACK_ENV=production
+      - FORCE_SSL=false
+      - DOMAIN=${HUGINN_DOMAIN:-localhost:3000}
+      - PORT=3000
+      - POSTGRES_PORT_5432_TCP_ADDR=postgres-db
+      - POSTGRES_PORT_5432_TCP_PORT=5432
       - DATABASE_ADAPTER=postgresql
+      - DATABASE_ENCODING=utf8
+      - DATABASE_RECONNECT=true
       - DATABASE_NAME=${HUGINN_DB:-huginn}
       - DATABASE_HOST=postgres-db
       - DATABASE_PORT=5432
       - DATABASE_USERNAME=${HUGINN_DB_USER:-huginn_user}
       - DATABASE_PASSWORD=${HUGINN_DB_PASS:-huginn_pass}
+      - HUGINN_DATABASE_ADAPTER=postgresql
+      - HUGINN_DATABASE_NAME=${HUGINN_DB:-huginn}
+      - HUGINN_DATABASE_HOST=postgres-db
+      - HUGINN_DATABASE_PORT=5432
+      - HUGINN_DATABASE_USERNAME=${HUGINN_DB_USER:-huginn_user}
+      - HUGINN_DATABASE_PASSWORD=${HUGINN_DB_PASS:-huginn_pass}
+      - DO_NOT_CREATE_DATABASE=true
       - REDIS_URL=redis://redis:6379
-      - PORT=3000
       - APP_SECRET_TOKEN=${HUGINN_APP_SECRET_TOKEN}
       - INVITATION_CODE=${HUGINN_INVITATION_CODE}
+      - IMPORT_DEFAULT_SCENARIO_FOR_ALL_USERS=false
     volumes:
       - /opt/deploy/data/huginn:/app/data
     networks:
@@ -70,7 +88,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${AUTOMATION_MEMORY_LIMIT:-512M}
+          memory: ${HUGINN_MEMORY_LIMIT:-1G}
 
   redis:
     image: redis:alpine
