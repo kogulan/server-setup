@@ -42,6 +42,8 @@ Open these ports in your cloud firewall/security list and on any external firewa
 | `8081/tcp` | Activepieces, only when using port-based access |
 | `3000/tcp` | Huginn, only when using port-based access |
 
+The installer opens these ports in the instance firewall. On OCI you must also allow the same inbound TCP ports in the VCN security list or network security group attached to the instance; otherwise external clients can time out even when Docker and UFW are configured correctly. This stack uses SFTP on TCP `2222`; it does not use FTP port `21` or passive FTP ports such as `30000-30009`.
+
 The setup script also configures UFW and inserts local iptables allow rules, but cloud firewall rules must still be configured in your provider console.
 
 ### DNS options
@@ -178,7 +180,35 @@ sudo ./setup.sh
 | Activepieces | `https://yourdomain.com:8081` or `https://SERVER_IP:8081` |
 | Huginn | `https://yourdomain.com:3000` or `https://SERVER_IP:3000` |
 
-If you selected HTTP-only, replace `https://` with `http://`.
+If you selected HTTP-only, replace `https://` with `http://`. The landing page reads the installer-selected access mode from `/opt/deploy/webserver/.env`, so after switching between subdomain and port mode, re-run `sudo ./setup.sh` to refresh the page links and restart the PHP container.
+
+## Troubleshooting 502 responses and SFTP timeouts
+
+After changing configuration, restart the stack from `/opt/deploy`:
+
+```bash
+sudo ./setup.sh
+```
+
+If n8n, Activepieces, or Huginn still returns `502 Bad Gateway`, check whether the upstream containers are running and healthy:
+
+```bash
+sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+sudo docker logs --tail=100 n8n-automation
+sudo docker logs --tail=100 activepieces-automation
+sudo docker logs --tail=100 huginn-automation
+sudo docker logs --tail=100 nginx-proxy
+```
+
+For SFTP timeouts, verify both the container and network path:
+
+```bash
+sudo docker ps --filter name=sftp-server
+sudo ss -ltnp | grep ':2222'
+sftp -P 2222 webuser@localhost
+```
+
+If local SFTP works but FileZilla from your computer times out, open TCP port `2222` in the OCI VCN security list or network security group for the instance. Opening FTP port `21` and passive FTP ranges does not open this SFTP service; FileZilla must use protocol `SFTP - SSH File Transfer Protocol`, host `yourdomain.com`, port `2222`, and the `webuser` or `filesuser` credentials.
 
 ## Adminer database login guide
 
@@ -202,7 +232,7 @@ Open Adminer and use these server names:
 
 ## Uploading files with SFTP
 
-SFTP runs on port `2222`.
+SFTP runs on port `2222`. In FileZilla, choose `SFTP - SSH File Transfer Protocol`; do not choose plain FTP/FTPS, because this deployment does not run an FTP server on port `21`.
 
 ### Website files
 
