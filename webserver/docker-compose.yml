@@ -9,6 +9,7 @@ services:
       - WEB_DB_USER=${WEB_DB_USER}
       - WEB_DB_PASS=${WEB_DB_PASS}
       - WEB_DB_NAME=${WEB_DB_NAME}
+      - ACCESS_CHOICE=${ACCESS_CHOICE}
     volumes:
       - /opt/deploy/data/web_root:/var/www/html
     networks:
