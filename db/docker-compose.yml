@@ -4,6 +4,7 @@ services:
     container_name: postgres-db
     restart: always
     environment:
+      TZ: ${TIMEZONE:-UTC}
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
@@ -20,6 +21,7 @@ services:
     container_name: mariadb-db
     restart: always
     environment:
+      TZ: ${TIMEZONE:-UTC}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-password}
     volumes:
       - /opt/deploy/data/mariadb:/var/lib/mysql
@@ -34,6 +36,8 @@ services:
     image: adminer:standalone
     container_name: adminer
     restart: always
+    environment:
+      TZ: ${TIMEZONE:-UTC}
     networks:
       - deploy-network
     deploy:

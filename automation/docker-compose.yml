@@ -4,6 +4,7 @@ services:
     container_name: n8n-automation
     restart: always
     environment:
+      - TZ=${TIMEZONE:-UTC}
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${N8N_DB:-n8n}
       - DB_POSTGRESDB_HOST=postgres-db
@@ -29,6 +30,7 @@ services:
     container_name: activepieces-automation
     restart: always
     environment:
+      - TZ=${TIMEZONE:-UTC}
       - AP_DB_ENGINE=POSTGRES
       - AP_POSTGRES_DATABASE=${AP_DB:-activepieces}
       - AP_POSTGRES_HOST=postgres-db
@@ -57,6 +59,7 @@ services:
     depends_on:
       - redis
     environment:
+      - TZ=${TIMEZONE:-UTC}
       - RAILS_ENV=production
       - RACK_ENV=production
       - FORCE_SSL=false
@@ -96,6 +99,8 @@ services:
     image: redis:alpine
     container_name: redis
     restart: always
+    environment:
+      - TZ=${TIMEZONE:-UTC}
     command: redis-server
     networks:
       - deploy-network
