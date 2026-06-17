@@ -3,6 +3,8 @@ services:
     image: emberstack/sftp:latest
     container_name: sftp-server
     restart: always
+    environment:
+      - TZ=${TIMEZONE:-UTC}
     ports:
       - "2222:22"
     volumes:
