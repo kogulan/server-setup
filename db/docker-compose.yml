@@ -1,14 +1,15 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18-alpine
     container_name: postgres-db
     restart: always
     environment:
       TZ: ${TIMEZONE:-UTC}
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      PGDATA: /var/lib/postgresql
     volumes:
-      - /opt/deploy/data/postgres:/var/lib/postgresql/data
+      - /opt/deploy/data/postgres:/var/lib/postgresql
     networks:
       - deploy-network
     deploy:
