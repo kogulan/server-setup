@@ -339,6 +339,8 @@ sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
 # Fix for Postgres 18+ data directory structure
 if [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
+    # Ensure container is stopped before moving files
+    sudo docker compose -f "$DEPLOY_ROOT/db/docker-compose.yml" stop postgres 2>/dev/null || true
     echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
     # Check current version if exists to warn about major upgrade
     if [ -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION" ]; then
