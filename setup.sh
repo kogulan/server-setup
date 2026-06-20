@@ -69,7 +69,8 @@ validate_timezone() {
 
 mariadb_can_auth_with_password() {
     local password="$1"
-    sudo docker exec -i mariadb-db mariadb -u root --password="$password" -e "SELECT 1;" >/dev/null 2>&1
+    # Pass password via STDIN to a subshell inside the container to avoid process list exposure
+    sudo docker exec -i mariadb-db sh -c 'read -r MYSQL_PWD; export MYSQL_PWD; mariadb -u root -e "SELECT 1;"' <<< "$password" >/dev/null 2>&1
 }
 
 mariadb_can_auth_empty() {
@@ -110,9 +111,10 @@ discover_mariadb_root_auth() {
 mariadb_root_exec() {
     local sql="$1"
     if [ "${MARIADB_ROOT_AUTH_MODE:-}" = "empty" ]; then
-        sudo docker exec -i mariadb-db mariadb -u root -e "$sql"
+        sudo docker exec -i mariadb-db mariadb -u root <<< "$sql"
     else
-        sudo docker exec -i mariadb-db mariadb -u root --password="$MARIADB_ROOT_WORKING_PASS" -e "$sql"
+        # Use internal container environment variable for root password
+        sudo docker exec -i mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb -u root' <<< "$sql"
     fi
 }
 
@@ -465,7 +467,7 @@ echo -e "Waiting for databases (up to 2 mins)..."
 DATABASES_READY=0
 for i in {1..24}; do
     if discover_mariadb_root_auth && \
-       sudo docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_isready -U admin -q; then
+       sudo docker exec postgres-db pg_isready -U admin -q; then
         DATABASES_READY=1
         echo -e "${GREEN}Databases verified.${NC}"
         break
@@ -498,9 +500,10 @@ mariadb_root_exec "
 "
 
 # PostgreSQL
-export PGPASSWORD="$DB_ROOT_PASS"
 psql_admin() {
-    sudo docker exec -i -e PGPASSWORD="$DB_ROOT_PASS" postgres-db psql -v ON_ERROR_STOP=1 -U admin "$@"
+    # Use internal container environment variable for postgres password
+    # Arguments are passed to psql, but SQL should preferably be passed via STDIN for security
+    sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -v ON_ERROR_STOP=1 -U admin "$@"' -- psql "$@"
 }
 
 ensure_postgres_app_db() {
@@ -508,11 +511,11 @@ ensure_postgres_app_db() {
     local db_user="$2"
     local db_pass="$3"
 
-    psql_admin -d postgres -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '$db_user') THEN CREATE USER $db_user WITH PASSWORD '$db_pass'; ELSE ALTER USER $db_user WITH PASSWORD '$db_pass'; END IF; END \$\$;"
-    psql_admin -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \
-        psql_admin -d postgres -c "CREATE DATABASE $db_name OWNER $db_user;"
-    psql_admin -d postgres -c "ALTER DATABASE $db_name OWNER TO $db_user; GRANT ALL PRIVILEGES ON DATABASE $db_name TO $db_user;"
-    psql_admin -d "$db_name" -c "ALTER SCHEMA public OWNER TO $db_user; GRANT ALL ON SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $db_user;"
+    psql_admin -d postgres <<< "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '$db_user') THEN CREATE USER $db_user WITH PASSWORD '$db_pass'; ELSE ALTER USER $db_user WITH PASSWORD '$db_pass'; END IF; END \$\$;"
+    psql_admin -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \
+        psql_admin -d postgres <<< "CREATE DATABASE $db_name OWNER $db_user;"
+    psql_admin -d postgres <<< "ALTER DATABASE $db_name OWNER TO $db_user; GRANT ALL PRIVILEGES ON DATABASE $db_name TO $db_user;"
+    psql_admin -d "$db_name" <<< "ALTER SCHEMA public OWNER TO $db_user; GRANT ALL ON SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $db_user;"
 }
 
 ensure_postgres_app_db "n8n" "n8n_user" "$N8N_DB_PASS"

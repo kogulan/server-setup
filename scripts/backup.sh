@@ -9,14 +9,11 @@ RETENTION_DAYS=7
 echo "Starting backup at $(date)"
 mkdir -p "$BACKUP_DIR"
 
-# Get root password from env
-DB_ROOT_PASS=$(grep MARIADB_ROOT_PASSWORD /opt/deploy/db/.env | cut -d'=' -f2)
-
 echo "Backing up PostgreSQL..."
-docker exec -e PGPASSWORD="$DB_ROOT_PASS" postgres-db pg_dumpall -U admin > "$BACKUP_DIR/postgres_full_$DATE.sql"
+docker exec postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dumpall -U admin' > "$BACKUP_DIR/postgres_full_$DATE.sql"
 
 echo "Backing up MariaDB..."
-docker exec mariadb-db mariadb-dump -u root -p"$DB_ROOT_PASS" --all-databases > "$BACKUP_DIR/mariadb_full_$DATE.sql"
+docker exec mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb-dump -u root --all-databases' > "$BACKUP_DIR/mariadb_full_$DATE.sql"
 
 echo "Backing up files..."
 tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" . --exclude="postgres" --exclude="mariadb"
