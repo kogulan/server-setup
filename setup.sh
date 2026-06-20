@@ -153,12 +153,12 @@ if [ "$SCRIPT_DIR" != "$DEPLOY_ROOT" ]; then
 fi
 
 # Fix cases where Docker created directories instead of empty files
-for item in "$DEPLOY_ROOT/storage/users.conf" "$DEPLOY_ROOT/storage/passwd" "$CONFIG_FILE"; do
+for item in "$DEPLOY_ROOT/storage/users.conf" "$DEPLOY_ROOT/storage/passwd" "$DEPLOY_ROOT/storage/sftp.json" "$DEPLOY_ROOT/webserver/timezone.ini" "$CONFIG_FILE"; do
     if [ -d "$item" ]; then
         echo "Fixing directory conflict for $item"
         sudo rm -rf "$item"
-        sudo touch "$item"
     fi
+    sudo touch "$item"
 done
 
 # Phase 1: Load/Save Configuration
