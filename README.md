@@ -130,13 +130,13 @@ Replace `YYYY-MM-DD` with your backup date.
 #### 1. Restore MariaDB (Web App DB)
 ```bash
 gunzip /opt/deploy/backups/mariadb_full_YYYY-MM-DD.sql.gz
-sudo docker exec -i mariadb-db mariadb -u root -p$(grep MARIADB_ROOT_PASSWORD /opt/deploy/db/.env | cut -d'=' -f2) < /opt/deploy/backups/mariadb_full_YYYY-MM-DD.sql
+sudo docker exec -i mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb -u root' < /opt/deploy/backups/mariadb_full_YYYY-MM-DD.sql
 ```
 
 #### 2. Restore PostgreSQL (n8n/AP/Huginn)
 ```bash
 gunzip /opt/deploy/backups/postgres_full_YYYY-MM-DD.sql.gz
-cat /opt/deploy/backups/postgres_full_YYYY-MM-DD.sql | sudo docker exec -i -e PGPASSWORD=$(grep POSTGRES_PASSWORD /opt/deploy/db/.env | cut -d'=' -f2) postgres-db psql -U admin postgres
+sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -U admin postgres' < /opt/deploy/backups/postgres_full_YYYY-MM-DD.sql
 ```
 
 #### 3. Restore Files
