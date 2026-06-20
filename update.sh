@@ -44,15 +44,19 @@ for service in "${SERVICES[@]}"; do
             echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
             sudo docker compose stop postgres 2>/dev/null || true
 
+            # Check current version if exists to warn about major upgrade
             if [ -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION" ]; then
                 OLD_VER=$(sudo cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
                 if [ "$OLD_VER" != "18" ]; then
                     echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
+                    echo -e "${YELLOW}This script will move your files to the new structure, but Postgres 18 may fail to start.${NC}"
                 fi
             fi
 
+            # Move all files (including hidden ones) to the parent directory
             if sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null"; then
                 sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
+                sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres"
                 echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
             else
                 if [ -n "$(sudo ls -A "$DEPLOY_ROOT/data/postgres/data" 2>/dev/null)" ]; then

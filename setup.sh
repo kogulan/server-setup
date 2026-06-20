@@ -354,6 +354,7 @@ if [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
     # Move all files (including hidden ones) to the parent directory
     if sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null"; then
         sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
+        sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres"
         echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
     else
         # If mv failed, it might be because the directory was already empty or move failed.
