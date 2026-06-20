@@ -340,8 +340,17 @@ sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 # Fix for Postgres 18+ data directory structure
 if [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
     echo "Converting legacy Postgres data structure..."
-    sudo mv $DEPLOY_ROOT/data/postgres/data/* $DEPLOY_ROOT/data/postgres/ 2>/dev/null || true
-    sudo rm -rf $DEPLOY_ROOT/data/postgres/data
+    # Check current version if exists to warn about major upgrade
+    if [ -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION" ]; then
+        OLD_VER=$(cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
+        if [ "$OLD_VER" != "18" ]; then
+            echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
+            echo -e "${YELLOW}This script will move your files to the new structure, but Postgres 18 may fail to start.${NC}"
+        fi
+    fi
+    # Move all files (including hidden ones) to the parent directory
+    sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null" || true
+    sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
 fi
 
 # Phase 4: Write Service Envs
