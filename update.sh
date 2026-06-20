@@ -38,6 +38,31 @@ for service in "${SERVICES[@]}"; do
     if [ -d "$DEPLOY_ROOT/$service" ]; then
         echo -e "Updating $service..."
         cd "$DEPLOY_ROOT/$service"
+
+        # Fix for Postgres 18+ data directory structure
+        if [ "$service" == "db" ] && [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
+            echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
+            sudo docker compose stop postgres 2>/dev/null || true
+
+            if [ -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION" ]; then
+                OLD_VER=$(sudo cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
+                if [ "$OLD_VER" != "18" ]; then
+                    echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
+                fi
+            fi
+
+            if sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null"; then
+                sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
+                echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
+            else
+                if [ -n "$(sudo ls -A "$DEPLOY_ROOT/data/postgres/data" 2>/dev/null)" ]; then
+                    echo -e "${RED}Failed to move Postgres data files. Manual intervention may be required.${NC}"
+                else
+                    sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
+                fi
+            fi
+        fi
+
         sudo docker compose pull
         sudo docker compose up -d
     fi
