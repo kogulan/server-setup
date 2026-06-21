@@ -87,12 +87,11 @@ discover_mariadb_root_auth() {
     [ -n "$container_env_pass" ] && candidates+=("$container_env_pass")
     candidates+=("password")
 
-    local seen="|"
+    local -A seen
     local candidate
     for candidate in "${candidates[@]}"; do
-        [ -z "$candidate" ] && continue
-        case "$seen" in *"|$candidate|"*) continue ;; esac
-        seen="${seen}${candidate}|"
+        [ -z "$candidate" ] || [ -n "${seen[$candidate]:-}" ] && continue
+        seen["$candidate"]=1
         if mariadb_can_auth_with_password "$candidate"; then
             MARIADB_ROOT_AUTH_MODE="password"
             MARIADB_ROOT_WORKING_PASS="$candidate"
