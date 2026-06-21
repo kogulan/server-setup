@@ -64,7 +64,7 @@ sudo ./setup.sh
 **During Setup:**
 *   Enter your **Domain** and **Email**.
 *   Choose **Subdomains** (`n8n.domain.com`) or **Ports** (`domain.com:5678`).
-*   **IMPORTANT**: Save the credentials displayed at the end! They are also saved in `/opt/deploy/credentials.txt`.
+*   **IMPORTANT**: Save the credentials displayed at the end!
 
 ---
 
@@ -75,7 +75,7 @@ sudo ./setup.sh
 | :--- | :--- | :--- | :--- |
 | **n8n** | `https://n8n.yourdomain.com` | `https://yourdomain.com:5678` | First visitor becomes Admin. |
 | **Activepieces** | `https://ap.yourdomain.com` | `https://yourdomain.com:8081` | First visitor becomes Admin. |
-| **Huginn** | `https://huginn.yourdomain.com` | `https://yourdomain.com:3000` | Requires Invitation Code from `credentials.txt`. |
+| **Huginn** | `https://huginn.yourdomain.com` | `https://yourdomain.com:3000` | Requires Invitation Code (see below). |
 | **Adminer** | `https://db.yourdomain.com` | `https://yourdomain.com:8080` | Use `postgres-db` or `mariadb-db` as host. |
 | **Website** | `https://yourdomain.com` | `https://yourdomain.com` | Managed via SFTP. |
 
@@ -89,7 +89,7 @@ Use **FileZilla** to manage your website files and general storage.
 5.  **Users**:
     - `webuser`: For website files (located in `/web_root`).
     - `filesuser`: For general storage.
-6.  **Password**: Find these in `/opt/deploy/credentials.txt`.
+6.  **Password**: See "Forgot Passwords" section below.
 
 ### 🌐 Website File Management
 Your website's files are served from `/opt/deploy/data/web_root/`.
@@ -163,10 +163,10 @@ If you see "Connection Lost" or "Lost connection to server" in n8n:
 ### 4. Forgot Passwords
 Run this to see all credentials:
 ```bash
-sudo cat /opt/deploy/credentials.txt
+sudo /opt/deploy/scripts/show_credentials.sh
 ```
 
 ---
 
 ## 🛡️ Security Note
-Keep your system updated regularly using `./update.sh`. Never share your `credentials.txt` file. For OCI users, always use the dedicated SFTP port (2222) for file transfers.
+Keep your system updated regularly using `./update.sh`. Never share your credentials. For OCI users, always use the dedicated SFTP port (2222) for file transfers.
