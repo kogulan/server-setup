@@ -33,7 +33,7 @@ upsert_env() {
         escaped_value=$(printf '%s' "$value" | sed 's/[&/\\]/\\&/g')
         sudo sed -i "s/^${key}=.*/${key}=${escaped_value}/" "$file"
     else
-        printf '%s=%s\n' "$key" "$value" | sudo tee -a "$file" > /dev/null
+        sudo tee -a "$file" > /dev/null <<< "$key=$value"
     fi
 }
 
@@ -232,7 +232,7 @@ if [ "$TOTAL_RAM" -lt 2000 ]; then
     REDIS_CMD="redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru"
     if [ ! -f /swapfile ]; then
         sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+        sudo tee -a /etc/fstab <<< '/swapfile none swap sw 0 0'
     fi
 else
     echo -e "${GREEN}Detected ${TOTAL_RAM}MB RAM. Using standard performance settings.${NC}"
@@ -257,7 +257,7 @@ if ! command -v docker &> /dev/null; then
     sudo install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     sudo chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null <<< "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"
     sudo apt-get update
     sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
@@ -296,7 +296,7 @@ sudo useradd -m -s /usr/sbin/nologin webuser || true
 sudo useradd -m -s /usr/sbin/nologin filesuser || true
 WEB_UID=$(id -u webuser); FILES_UID=$(id -u filesuser)
 
-cat <<EOF | sudo tee "$DEPLOY_ROOT/storage/sftp.json" > /dev/null
+sudo tee "$DEPLOY_ROOT/storage/sftp.json" > /dev/null <<EOF
 {
     "Global": {
         "Chroot": { "Directory": "%h" }
@@ -367,7 +367,7 @@ N8N_EDITOR_BASE_URL="$BASE_URL:5678"; [ "$ACCESS_CHOICE" == "1" ] && N8N_EDITOR_
 N8N_ALLOWED_ORIGINS="$BASE_URL:5678"; [ "$ACCESS_CHOICE" == "1" ] && N8N_ALLOWED_ORIGINS="$PROTO://n8n.$MAIN_DOMAIN"
 HUGINN_DOMAIN="$MAIN_DOMAIN:3000"; [ "$ACCESS_CHOICE" == "1" ] && HUGINN_DOMAIN="huginn.$MAIN_DOMAIN"
 
-cat <<EOF | sudo tee "$DEPLOY_ROOT/db/.env" > /dev/null
+sudo tee "$DEPLOY_ROOT/db/.env" > /dev/null <<EOF
 POSTGRES_USER=admin
 POSTGRES_PASSWORD=$DB_ROOT_PASS
 MARIADB_ROOT_PASSWORD=$DB_ROOT_PASS
@@ -376,7 +376,7 @@ ADMINER_PORT=8080
 TIMEZONE=$TIMEZONE
 EOF
 
-cat <<EOF | sudo tee "$DEPLOY_ROOT/automation/.env" > /dev/null
+sudo tee "$DEPLOY_ROOT/automation/.env" > /dev/null <<EOF
 AUTOMATION_MEMORY_LIMIT=$AUTO_LIMIT
 HUGINN_MEMORY_LIMIT=$HUGINN_LIMIT
 TIMEZONE=$TIMEZONE
@@ -404,7 +404,7 @@ HUGINN_DOMAIN=$HUGINN_DOMAIN
 HUGINN_PORT_EXTERNAL=3000
 EOF
 
-cat <<EOF | sudo tee "$DEPLOY_ROOT/webserver/.env" > /dev/null
+sudo tee "$DEPLOY_ROOT/webserver/.env" > /dev/null <<EOF
 PHP_MEMORY_LIMIT=$PHP_LIMIT
 MARIADB_ROOT_PASSWORD=$DB_ROOT_PASS
 POSTGRES_PASSWORD=$DB_ROOT_PASS
@@ -416,7 +416,7 @@ TIMEZONE=$TIMEZONE
 EOF
 
 # PHP timezone config
-echo "date.timezone = $TIMEZONE" | sudo tee "$DEPLOY_ROOT/webserver/timezone.ini" > /dev/null
+sudo tee "$DEPLOY_ROOT/webserver/timezone.ini" > /dev/null <<< "date.timezone = $TIMEZONE"
 
 sudo sed -i "s/command: redis-server.*/command: $REDIS_CMD/g" "$DEPLOY_ROOT/automation/docker-compose.yml" || true
 TEMPLATE="nginx_ports.conf"; [ "$ACCESS_CHOICE" == "1" ] && TEMPLATE="nginx_subdomains.conf"
