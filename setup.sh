@@ -512,11 +512,19 @@ ensure_postgres_app_db() {
     local db_user="$2"
     local db_pass="$3"
 
-    psql_admin -d postgres <<< "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '$db_user') THEN CREATE USER $db_user WITH PASSWORD '$db_pass'; ELSE ALTER USER $db_user WITH PASSWORD '$db_pass'; END IF; END \$\$;"
-    psql_admin -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1 || \
-        psql_admin -d postgres <<< "CREATE DATABASE $db_name OWNER $db_user;"
-    psql_admin -d postgres <<< "ALTER DATABASE $db_name OWNER TO $db_user; GRANT ALL PRIVILEGES ON DATABASE $db_name TO $db_user;"
-    psql_admin -d "$db_name" <<< "ALTER SCHEMA public OWNER TO $db_user; GRANT ALL ON SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $db_user; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $db_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $db_user;"
+    psql_admin -d postgres <<EOF
+DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = '$db_user') THEN CREATE USER $db_user WITH PASSWORD '$db_pass'; ELSE ALTER USER $db_user WITH PASSWORD '$db_pass'; END IF; END \$\$;
+SELECT 'CREATE DATABASE $db_name OWNER $db_user' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db_name') \gexec
+ALTER DATABASE $db_name OWNER TO $db_user;
+GRANT ALL PRIVILEGES ON DATABASE $db_name TO $db_user;
+\c $db_name
+ALTER SCHEMA public OWNER TO $db_user;
+GRANT ALL ON SCHEMA public TO $db_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $db_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $db_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $db_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $db_user;
+EOF
 }
 
 ensure_postgres_app_db "n8n" "n8n_user" "$N8N_DB_PASS"
