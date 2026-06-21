@@ -104,8 +104,40 @@ else
     FAILED=$((FAILED + 1))
 fi
 
+# --- Tests for upsert_env ---
+
+echo -e "\nRunning tests for upsert_env..."
+
+UPSERT_FILE="/tmp/upsert.env"
+rm -f "$UPSERT_FILE"
+
+# Case 1: Insert into new file
+upsert_env "KEY1" "VALUE1" "$UPSERT_FILE"
+assert_eq "VALUE1" "$(get_secret "KEY1" "$UPSERT_FILE")" "Insert into new file"
+
+# Case 2: Append to existing file
+upsert_env "KEY2" "VALUE2" "$UPSERT_FILE"
+assert_eq "VALUE2" "$(get_secret "KEY2" "$UPSERT_FILE")" "Append to existing file"
+assert_eq "VALUE1" "$(get_secret "KEY1" "$UPSERT_FILE")" "Check previous key still exists"
+
+# Case 3: Update existing key
+upsert_env "KEY1" "NEW_VALUE1" "$UPSERT_FILE"
+assert_eq "NEW_VALUE1" "$(get_secret "KEY1" "$UPSERT_FILE")" "Update existing key"
+
+# Case 4: Special characters escaping (&, /, \)
+# These are special to sed, so they need careful escaping in upsert_env
+upsert_env "SPECIAL" "initial" "$UPSERT_FILE"
+upsert_env "SPECIAL" "val&ue/with\\backslashes" "$UPSERT_FILE"
+assert_eq "val&ue/with\\backslashes" "$(get_secret "SPECIAL" "$UPSERT_FILE")" "Special characters escaping (&, /, \\)"
+
+# Case 5: Exact key matching
+echo "PREFIX_KEY=FAIL" >> "$UPSERT_FILE"
+upsert_env "KEY" "SUCCESS" "$UPSERT_FILE"
+assert_eq "SUCCESS" "$(get_secret "KEY" "$UPSERT_FILE")" "Exact key matching"
+assert_eq "FAIL" "$(get_secret "PREFIX_KEY" "$UPSERT_FILE")" "Prefix key remains unchanged"
+
 # Cleanup
-rm -f "$TEST_ENV" "$NEW_SECRET_FILE"
+rm -f "$TEST_ENV" "$NEW_SECRET_FILE" "$UPSERT_FILE"
 rm -rf "$DEPLOY_ROOT"
 
 echo -e "\nTest Summary: $PASSED passed, $FAILED failed."
