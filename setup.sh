@@ -131,6 +131,13 @@ sync_mariadb_root_password() {
     fi
 }
 
+allow_port() {
+    local port="$1"
+    local proto="${2:-tcp}"
+    sudo iptables -I INPUT -p "$proto" --dport "$port" -j ACCEPT || true
+    sudo ufw allow "$port/$proto"
+}
+
 # Phase 0: Pre-flight Checks
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 0] Pre-flight checks (fixing filesystem conflicts)...${NC}"
@@ -240,16 +247,11 @@ sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg lsb-re
 
 # Early Firewall Configuration (Critical for OCI)
 echo -e "${YELLOW}[Step 2.1] Opening ports 80/443/22/2222 in local firewall...${NC}"
-# Insert rules at top of iptables to bypass OCI default REJECT rules
-sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT || true
-sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT || true
-sudo iptables -I INPUT -p tcp --dport 22 -j ACCEPT || true
-sudo iptables -I INPUT -p tcp --dport 2222 -j ACCEPT || true
-# Configure UFW
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 2222/tcp
+# Insert rules at top of iptables to bypass OCI default REJECT rules and configure UFW
+CORE_PORTS=(22 80 443 2222)
+for port in "${CORE_PORTS[@]}"; do
+    allow_port "$port"
+done
 echo "y" | sudo ufw enable
 
 if ! command -v docker &> /dev/null; then
@@ -530,14 +532,14 @@ cd "$DEPLOY_ROOT/proxy" && sudo docker compose up -d
 # Final: Firewall & Credentials
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Final] Updating Firewall...${NC}"
-sudo iptables -I INPUT -p tcp --dport 2222 -j ACCEPT || true
-sudo ufw allow 22/tcp; sudo ufw allow 80/tcp; sudo ufw allow 443/tcp; sudo ufw allow 2222/tcp
+for port in "${CORE_PORTS[@]}"; do
+    allow_port "$port"
+done
 if [ "$ACCESS_CHOICE" == "2" ]; then
-    sudo ufw allow 8080/tcp; sudo ufw allow 5678/tcp; sudo ufw allow 8081/tcp; sudo ufw allow 3000/tcp
-    sudo iptables -I INPUT -p tcp --dport 8080 -j ACCEPT || true
-    sudo iptables -I INPUT -p tcp --dport 5678 -j ACCEPT || true
-    sudo iptables -I INPUT -p tcp --dport 8081 -j ACCEPT || true
-    sudo iptables -I INPUT -p tcp --dport 3000 -j ACCEPT || true
+    EXTRA_PORTS=(8080 5678 8081 3000)
+    for port in "${EXTRA_PORTS[@]}"; do
+        allow_port "$port"
+    done
 fi
 echo "y" | sudo ufw enable
 
