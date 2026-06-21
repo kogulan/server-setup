@@ -58,6 +58,18 @@ should_prompt() {
     return 1
 }
 
+prompt_env() {
+    local var_name="$1"
+    local prompt_msg="$2"
+    local info_msg="${3:-}"
+
+    if should_prompt "$var_name"; then
+        [ -n "$info_msg" ] && echo -e "$info_msg"
+        read -p "$prompt_msg" "$var_name"
+        upsert_env "$var_name" "${!var_name}" "$CONFIG_FILE"
+    fi
+}
+
 validate_timezone() {
     local tz="$1"
     if timedatectl list-timezones | grep -qx "$tz"; then
@@ -174,29 +186,10 @@ done
 echo -e "${YELLOW}[Step 1] Loading user configuration...${NC}"
 [ -f "$CONFIG_FILE" ] && set -a && source "$CONFIG_FILE" && set +a || sudo touch "$CONFIG_FILE"
 
-if should_prompt MAIN_DOMAIN; then
-    read -p "Enter your main Domain or IP (e.g., yourdomain.com): " MAIN_DOMAIN
-    upsert_env MAIN_DOMAIN "$MAIN_DOMAIN" "$CONFIG_FILE"
-fi
-if should_prompt ADMIN_EMAIL; then
-    read -p "Enter Admin email (for SSL notifications): " ADMIN_EMAIL
-    upsert_env ADMIN_EMAIL "$ADMIN_EMAIL" "$CONFIG_FILE"
-fi
-if should_prompt ACCESS_CHOICE; then
-    echo -e "\nHow would you like to access your tools?"
-    echo "1) Subdomains (n8n.domain.com, ap.domain.com, etc.)"
-    echo "2) Ports (domain.com:5678, domain.com:8081, etc.)"
-    read -p "Choice [1-2]: " ACCESS_CHOICE
-    upsert_env ACCESS_CHOICE "$ACCESS_CHOICE" "$CONFIG_FILE"
-fi
-if should_prompt SSL_CHOICE; then
-    echo -e "\nSSL Certificate Setup:"
-    echo "1) Let's Encrypt (Requires Port 80 open & Domain pointed to IP)"
-    echo "2) Self-Signed (Works for IP-based access)"
-    echo "3) None (HTTP Only - insecure)"
-    read -p "Choice [1-3]: " SSL_CHOICE
-    upsert_env SSL_CHOICE "$SSL_CHOICE" "$CONFIG_FILE"
-fi
+prompt_env MAIN_DOMAIN "Enter your main Domain or IP (e.g., yourdomain.com): "
+prompt_env ADMIN_EMAIL "Enter Admin email (for SSL notifications): "
+prompt_env ACCESS_CHOICE "Choice [1-2]: " "\nHow would you like to access your tools?\n1) Subdomains (n8n.domain.com, ap.domain.com, etc.)\n2) Ports (domain.com:5678, domain.com:8081, etc.)"
+prompt_env SSL_CHOICE "Choice [1-3]: " "\nSSL Certificate Setup:\n1) Let's Encrypt (Requires Port 80 open & Domain pointed to IP)\n2) Self-Signed (Works for IP-based access)\n3) None (HTTP Only - insecure)"
 
 if should_prompt TIMEZONE; then
     while true; do
