@@ -23,6 +23,7 @@ function get_db_status($type, $host, $user, $pass, $db) {
 $web_server_version = $_SERVER['SERVER_SOFTWARE'];
 $php_version = PHP_VERSION;
 $host_name = $_SERVER['HTTP_HOST'];
+$clean_host = explode(':', $host_name)[0];
 $proto = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
 $access_choice = getenv('ACCESS_CHOICE') ?: '';
 
@@ -49,9 +50,8 @@ if ($access_choice !== '1' && $access_choice !== '2') {
     $is_port_access = (strpos($host_name, ':') !== false) || preg_match('/^\d+\.\d+\.\d+\.\d+$/', explode(':', $host_name)[0]);
 }
 
-function get_service_url($base_proto, $base_host, $port, $subdomain) {
+function get_service_url($base_proto, $clean_host, $port, $subdomain) {
     global $is_port_access;
-    $clean_host = explode(':', $base_host)[0];
     if ($is_port_access) {
         return "$base_proto://$clean_host:$port";
     }
@@ -98,10 +98,10 @@ function get_service_url($base_proto, $base_host, $port, $subdomain) {
 
         <div class="links">
             <strong>Tools & Services:</strong><br><br>
-            <a href="<?php echo get_service_url($proto, $host_name, '8080', 'db'); ?>" target="_blank">Adminer (DB)</a>
-            <a href="<?php echo get_service_url($proto, $host_name, '5678', 'n8n'); ?>" target="_blank">n8n</a>
-            <a href="<?php echo get_service_url($proto, $host_name, '8081', 'ap'); ?>" target="_blank">Activepieces</a>
-            <a href="<?php echo get_service_url($proto, $host_name, '3000', 'huginn'); ?>" target="_blank">Huginn</a>
+            <a href="<?php echo get_service_url($proto, $clean_host, '8080', 'db'); ?>" target="_blank">Adminer (DB)</a>
+            <a href="<?php echo get_service_url($proto, $clean_host, '5678', 'n8n'); ?>" target="_blank">n8n</a>
+            <a href="<?php echo get_service_url($proto, $clean_host, '8081', 'ap'); ?>" target="_blank">Activepieces</a>
+            <a href="<?php echo get_service_url($proto, $clean_host, '3000', 'huginn'); ?>" target="_blank">Huginn</a>
         </div>
         <hr>
         <p><small>Generated passwords and SFTP details can be found in <code>/opt/deploy/credentials.txt</code> on the server.</small></p>
