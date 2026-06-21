@@ -15,15 +15,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-DEPLOY_ROOT="/opt/deploy"
-CONFIG_FILE="$DEPLOY_ROOT/.env"
-
-echo -e "${GREEN}================================================================${NC}"
-echo -e "${GREEN}Starting OCI Deployment Setup (v5.1)${NC}"
-echo -e "${GREEN}================================================================${NC}"
-echo -e "NOTE: All database and SFTP passwords will be automatically"
-echo -e "generated at the end of this setup. No manual .env editing is required."
-echo -e "You can view them anytime with: ${YELLOW}sudo $DEPLOY_ROOT/scripts/show_credentials.sh${NC}\n"
+DEPLOY_ROOT="${DEPLOY_ROOT:-/opt/deploy}"
+CONFIG_FILE="${CONFIG_FILE:-$DEPLOY_ROOT/.env}"
 
 upsert_env() {
     local key="$1" value="$2" file="$3"
@@ -563,6 +556,13 @@ phase7_final_firewall_credentials() {
 }
 
 main() {
+    echo -e "${GREEN}================================================================${NC}"
+    echo -e "${GREEN}Starting OCI Deployment Setup (v5.1)${NC}"
+    echo -e "${GREEN}================================================================${NC}"
+    echo -e "NOTE: All database and SFTP passwords will be automatically"
+    echo -e "generated at the end of this setup. No manual .env editing is required."
+    echo -e "You can view them anytime with: ${YELLOW}sudo $DEPLOY_ROOT/scripts/show_credentials.sh${NC}\n"
+
     phase0_preflight_checks
     phase1_load_config
     phase1b_performance_tuning
@@ -574,4 +574,6 @@ main() {
     phase7_final_firewall_credentials
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
