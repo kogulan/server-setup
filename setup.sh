@@ -266,44 +266,30 @@ fi
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}[Step 3] Configuring persistent secrets and SFTP users...${NC}"
 get_secret() { grep "^$1=" "$2" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || echo ""; }
+ensure_secret() {
+    local key="$1" file="$2" length="${3:-12}"
+    local secret
+    secret=$(get_secret "$key" "$file")
+    [ -z "$secret" ] && secret=$(openssl rand -hex "$length")
+    echo "$secret"
+}
 
-DB_ROOT_PASS=$(get_secret "MARIADB_ROOT_PASSWORD" "$DEPLOY_ROOT/db/.env")
-[ -z "$DB_ROOT_PASS" ] && DB_ROOT_PASS=$(openssl rand -hex 12)
-
-WEB_DB_PASS=$(get_secret "WEB_DB_PASS" "$DEPLOY_ROOT/webserver/.env")
-[ -z "$WEB_DB_PASS" ] && WEB_DB_PASS=$(openssl rand -hex 12)
-
-N8N_DB_PASS=$(get_secret "N8N_DB_PASS" "$DEPLOY_ROOT/automation/.env")
-[ -z "$N8N_DB_PASS" ] && N8N_DB_PASS=$(openssl rand -hex 12)
-
-AP_DB_PASS=$(get_secret "AP_DB_PASS" "$DEPLOY_ROOT/automation/.env")
-[ -z "$AP_DB_PASS" ] && AP_DB_PASS=$(openssl rand -hex 12)
-
-HUGINN_DB_PASS=$(get_secret "HUGINN_DB_PASS" "$DEPLOY_ROOT/automation/.env")
-[ -z "$HUGINN_DB_PASS" ] && HUGINN_DB_PASS=$(openssl rand -hex 12)
-
-N8N_ENCRYPTION_KEY=$(get_secret "N8N_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env")
-[ -z "$N8N_ENCRYPTION_KEY" ] && N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)
-
-AP_ENCRYPTION_KEY=$(get_secret "AP_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env")
-[ -z "$AP_ENCRYPTION_KEY" ] && AP_ENCRYPTION_KEY=$(openssl rand -hex 16)
-
-AP_JWT_SECRET=$(get_secret "AP_JWT_SECRET" "$DEPLOY_ROOT/automation/.env")
-[ -z "$AP_JWT_SECRET" ] && AP_JWT_SECRET=$(openssl rand -hex 32)
-
-HUGINN_APP_SECRET_TOKEN=$(get_secret "HUGINN_APP_SECRET_TOKEN" "$DEPLOY_ROOT/automation/.env")
-[ -z "$HUGINN_APP_SECRET_TOKEN" ] && HUGINN_APP_SECRET_TOKEN=$(openssl rand -hex 64)
-
-HUGINN_INVITATION_CODE=$(get_secret "HUGINN_INVITATION_CODE" "$DEPLOY_ROOT/automation/.env")
-[ -z "$HUGINN_INVITATION_CODE" ] && HUGINN_INVITATION_CODE=$(openssl rand -hex 12)
+DB_ROOT_PASS=$(ensure_secret "MARIADB_ROOT_PASSWORD" "$DEPLOY_ROOT/db/.env" 12)
+WEB_DB_PASS=$(ensure_secret "WEB_DB_PASS" "$DEPLOY_ROOT/webserver/.env" 12)
+N8N_DB_PASS=$(ensure_secret "N8N_DB_PASS" "$DEPLOY_ROOT/automation/.env" 12)
+AP_DB_PASS=$(ensure_secret "AP_DB_PASS" "$DEPLOY_ROOT/automation/.env" 12)
+HUGINN_DB_PASS=$(ensure_secret "HUGINN_DB_PASS" "$DEPLOY_ROOT/automation/.env" 12)
+N8N_ENCRYPTION_KEY=$(ensure_secret "N8N_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env" 32)
+AP_ENCRYPTION_KEY=$(ensure_secret "AP_ENCRYPTION_KEY" "$DEPLOY_ROOT/automation/.env" 16)
+AP_JWT_SECRET=$(ensure_secret "AP_JWT_SECRET" "$DEPLOY_ROOT/automation/.env" 32)
+HUGINN_APP_SECRET_TOKEN=$(ensure_secret "HUGINN_APP_SECRET_TOKEN" "$DEPLOY_ROOT/automation/.env" 64)
+HUGINN_INVITATION_CODE=$(ensure_secret "HUGINN_INVITATION_CODE" "$DEPLOY_ROOT/automation/.env" 12)
 
 # Handle SFTP Config for Emberstack (JSON format)
-SFTP_WEB_PASS=$(get_secret "SFTP_WEB_PASS" "$DEPLOY_ROOT/.env")
-[ -z "$SFTP_WEB_PASS" ] && SFTP_WEB_PASS=$(openssl rand -hex 12)
+SFTP_WEB_PASS=$(ensure_secret "SFTP_WEB_PASS" "$DEPLOY_ROOT/.env" 12)
 upsert_env SFTP_WEB_PASS "$SFTP_WEB_PASS" "$CONFIG_FILE"
 
-SFTP_FILES_PASS=$(get_secret "SFTP_FILES_PASS" "$DEPLOY_ROOT/.env")
-[ -z "$SFTP_FILES_PASS" ] && SFTP_FILES_PASS=$(openssl rand -hex 12)
+SFTP_FILES_PASS=$(ensure_secret "SFTP_FILES_PASS" "$DEPLOY_ROOT/.env" 12)
 upsert_env SFTP_FILES_PASS "$SFTP_FILES_PASS" "$CONFIG_FILE"
 
 sudo useradd -m -s /usr/sbin/nologin webuser || true
