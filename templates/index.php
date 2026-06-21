@@ -104,7 +104,7 @@ function get_service_url($base_proto, $clean_host, $port, $subdomain) {
             <a href="<?php echo get_service_url($proto, $clean_host, '3000', 'huginn'); ?>" target="_blank">Huginn</a>
         </div>
         <hr>
-        <p><small>Generated passwords and SFTP details can be found in <code>/opt/deploy/credentials.txt</code> on the server.</small></p>
+        <p><small>Generated passwords and SFTP details can be retrieved by running <code>sudo /opt/deploy/scripts/show_credentials.sh</code> on the server.</small></p>
     </div>
 </body>
 </html>

@@ -22,8 +22,8 @@ echo -e "${GREEN}===============================================================
 echo -e "${GREEN}Starting OCI Deployment Setup (v5.1)${NC}"
 echo -e "${GREEN}================================================================${NC}"
 echo -e "NOTE: All database and SFTP passwords will be automatically"
-echo -e "generated and saved to ${YELLOW}$DEPLOY_ROOT/credentials.txt${NC}"
-echo -e "at the end of this setup. No manual .env editing is required.\n"
+echo -e "generated at the end of this setup. No manual .env editing is required."
+echo -e "You can view them anytime with: ${YELLOW}sudo $DEPLOY_ROOT/scripts/show_credentials.sh${NC}\n"
 
 upsert_env() {
     local key="$1" value="$2" file="$3"
@@ -550,21 +550,9 @@ if [ "$ACCESS_CHOICE" == "2" ]; then
 fi
 echo "y" | sudo ufw enable
 
-cat <<EOF | sudo tee "$DEPLOY_ROOT/credentials.txt" > /dev/null
-================================================================
-OCI DEPLOYMENT CREDENTIALS
-================================================================
-PostgreSQL Admin: admin / $DB_ROOT_PASS
-MariaDB Root: root / $DB_ROOT_PASS
-Web App DB: web_app_user / $WEB_DB_PASS (DB: web_app_db)
-SFTP (FileZilla protocol: SFTP, not FTP; Port 2222):
-  Web Root: webuser / $SFTP_WEB_PASS
-  Storage:  filesuser / $SFTP_FILES_PASS
-Huginn invitation code: $HUGINN_INVITATION_CODE
-================================================================
-EOF
-sudo chmod 600 "$DEPLOY_ROOT/credentials.txt"
 (sudo crontab -l 2>/dev/null; echo "0 2 * * 0 $DEPLOY_ROOT/scripts/backup.sh >> $DEPLOY_ROOT/backups/backup.log 2>&1") | sudo crontab - || true
 
-echo -e "\n${GREEN}Setup Successful! Credentials saved to ${NC}$DEPLOY_ROOT/credentials.txt"
-sudo cat "$DEPLOY_ROOT/credentials.txt"
+echo -e "\n${GREEN}Setup Successful!${NC}"
+echo -e "${YELLOW}IMPORTANT: Save these credentials securely!${NC}"
+sudo "$DEPLOY_ROOT/scripts/show_credentials.sh"
+echo -e "You can retrieve them later by running: ${YELLOW}sudo $DEPLOY_ROOT/scripts/show_credentials.sh${NC}"
