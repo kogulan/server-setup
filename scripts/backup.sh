@@ -10,16 +10,13 @@ echo "Starting backup at $(date)"
 mkdir -p "$BACKUP_DIR"
 
 echo "Backing up PostgreSQL..."
-docker exec postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dumpall -U admin' > "$BACKUP_DIR/postgres_full_$DATE.sql"
+docker exec postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dumpall -U admin' | gzip > "$BACKUP_DIR/postgres_full_$DATE.sql.gz"
 
 echo "Backing up MariaDB..."
-docker exec mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb-dump -u root --all-databases' > "$BACKUP_DIR/mariadb_full_$DATE.sql"
+docker exec mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb-dump -u root --all-databases' | gzip > "$BACKUP_DIR/mariadb_full_$DATE.sql.gz"
 
 echo "Backing up files..."
 tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" . --exclude="postgres" --exclude="mariadb"
-
-gzip "$BACKUP_DIR/postgres_full_$DATE.sql"
-gzip "$BACKUP_DIR/mariadb_full_$DATE.sql"
 
 echo "Cleaning up backups older than $RETENTION_DAYS days..."
 find "$BACKUP_DIR" -type f -mtime +$RETENTION_DAYS -delete
