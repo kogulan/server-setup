@@ -348,7 +348,7 @@ EOF
     sudo chown -R filesuser:filesuser "$DEPLOY_ROOT/data/ftp_storage"
     sudo chown -R 1000:1000 "$DEPLOY_ROOT/data/n8n"
     sudo chown -R root:root "$DEPLOY_ROOT/data/activepieces"
-    sudo chmod -R 700 "$DEPLOY_ROOT/data/activepieces"
+    sudo chmod -R 777 "$DEPLOY_ROOT/data/activepieces"
     sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
     # Fix for Postgres 18+ data directory structure
