@@ -41,13 +41,13 @@ main() {
             cd "$DEPLOY_ROOT/$service"
 
             # Fix for Postgres 18+ data directory structure
-            if [ "$service" == "db" ] && [ -d "$DEPLOY_ROOT/data/postgres/data" ]; then
+            if [ "$service" == "db" ] && sudo test -d "$DEPLOY_ROOT/data/postgres/data"; then
                 echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
                 sudo docker compose stop postgres 2>/dev/null || true
 
                 # Check current version if exists to warn about major upgrade
-                if [ -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION" ]; then
-                    OLD_VER=$(<"$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
+                if sudo test -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION"; then
+                    OLD_VER=$(sudo cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
                     if [ "$OLD_VER" != "18" ]; then
                         echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
                         echo -e "${YELLOW}This script will move your files to the new structure, but Postgres 18 may fail to start.${NC}"
