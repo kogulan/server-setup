@@ -35,38 +35,16 @@ main() {
     echo -e "${YELLOW}[3/4] Updating Docker containers...${NC}"
     SERVICES=("db" "automation" "webserver" "storage" "proxy")
 
+    source "$DEPLOY_ROOT/scripts/utils.sh"
+
     for service in "${SERVICES[@]}"; do
         if [ -d "$DEPLOY_ROOT/$service" ]; then
             echo -e "Updating $service..."
             cd "$DEPLOY_ROOT/$service"
 
             # Fix for Postgres 18+ data directory structure
-            if [ "$service" == "db" ] && sudo test -d "$DEPLOY_ROOT/data/postgres/data"; then
-                # Ensure container is stopped before moving files
-                sudo docker compose stop postgres 2>/dev/null || true
-                echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
-                # Check current version if exists to warn about major upgrade
-                if sudo test -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION"; then
-                    OLD_VER=$(sudo cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
-                    if [ "$OLD_VER" != "18" ]; then
-                        echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
-                        echo -e "${YELLOW}This script will move your files to the new structure, but Postgres 18 may fail to start.${NC}"
-                    fi
-                fi
-                # Move all files (including hidden ones) to the parent directory
-                if sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null"; then
-                    sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
-                    sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres"
-                    echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
-                else
-                    # If mv failed, it might be because the directory was already empty or move failed.
-                    # Check if directory still has files
-                    if [ -n "$(sudo ls -A "$DEPLOY_ROOT/data/postgres/data" 2>/dev/null)" ]; then
-                        echo -e "${RED}Failed to move Postgres data files. Manual intervention may be required.${NC}"
-                    else
-                        sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
-                    fi
-                fi
+            if [ "$service" == "db" ]; then
+                migrate_postgres "$DEPLOY_ROOT"
             fi
 
             sudo docker compose pull

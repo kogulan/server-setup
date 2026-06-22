@@ -6,10 +6,13 @@ export DEPLOY_ROOT="/tmp/deploy_update_test"
 COMMAND_LOG="/tmp/commands.log"
 OUTPUT_LOG="/tmp/output.log"
 
+# Global original script directory
+ORIGINAL_SCRIPT_DIR=$(pwd)
+
 # Setup test environment
 setup_test_env() {
-    rm -rf "$DEPLOY_ROOT"
-    mkdir -p "$DEPLOY_ROOT"
+    mkdir -p "$DEPLOY_ROOT/scripts"
+    cp "$ORIGINAL_SCRIPT_DIR/scripts/utils.sh" "$DEPLOY_ROOT/scripts/"
     rm -f "$COMMAND_LOG" "$OUTPUT_LOG"
     touch "$COMMAND_LOG" "$OUTPUT_LOG"
 
@@ -142,7 +145,8 @@ assert_grep "sudo chown -R 999:999 $DEPLOY_ROOT/data/postgres" "$COMMAND_LOG" "C
 # --- Test Case 3: Missing Backup Script ---
 echo -e "\nTest Case 3: Missing Backup Script"
 setup_test_env
-# No backup script created
+# Remove the backup script created by setup_test_env
+rm -f "$DEPLOY_ROOT/scripts/backup.sh"
 
 main > "$OUTPUT_LOG" 2>&1
 

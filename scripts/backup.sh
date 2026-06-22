@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eo pipefail
+
 # Configuration
 BACKUP_DIR="${BACKUP_DIR:-/opt/deploy/backups}"
 DATA_DIR="${DATA_DIR:-/opt/deploy/data}"
@@ -11,13 +13,22 @@ main() {
     mkdir -p "$BACKUP_DIR"
 
     echo "Backing up PostgreSQL..."
-    docker exec postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dumpall -U admin' | gzip > "$BACKUP_DIR/postgres_full_$DATE.sql.gz"
+    if ! docker exec postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dumpall -U admin' | gzip > "$BACKUP_DIR/postgres_full_$DATE.sql.gz"; then
+        echo "PostgreSQL backup failed!"
+        return 1
+    fi
 
     echo "Backing up MariaDB..."
-    docker exec mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb-dump -u root --all-databases' | gzip > "$BACKUP_DIR/mariadb_full_$DATE.sql.gz"
+    if ! docker exec mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb-dump -u root --all-databases' | gzip > "$BACKUP_DIR/mariadb_full_$DATE.sql.gz"; then
+        echo "MariaDB backup failed!"
+        return 1
+    fi
 
     echo "Backing up files..."
-    tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" . --exclude="postgres" --exclude="mariadb"
+    if ! tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" . --exclude="postgres" --exclude="mariadb"; then
+        echo "File backup failed!"
+        return 1
+    fi
 
     echo "Cleaning up backups older than $RETENTION_DAYS days..."
     find "$BACKUP_DIR" -type f -mtime +$RETENTION_DAYS -delete
