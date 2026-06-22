@@ -24,6 +24,11 @@ services:
       resources:
         limits:
           memory: ${AUTOMATION_MEMORY_LIMIT:-512M}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   activepieces:
     image: activepieces/activepieces:latest
@@ -51,6 +56,11 @@ services:
       resources:
         limits:
           memory: ${AUTOMATION_MEMORY_LIMIT:-512M}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   huginn:
     image: ghcr.io/huginn/huginn:latest
@@ -94,6 +104,11 @@ services:
       resources:
         limits:
           memory: ${HUGINN_MEMORY_LIMIT:-1G}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:alpine
@@ -108,6 +123,11 @@ services:
       resources:
         limits:
           memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   deploy-network:

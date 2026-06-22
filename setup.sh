@@ -348,37 +348,12 @@ EOF
     sudo chown -R filesuser:filesuser "$DEPLOY_ROOT/data/ftp_storage"
     sudo chown -R 1000:1000 "$DEPLOY_ROOT/data/n8n"
     sudo chown -R root:root "$DEPLOY_ROOT/data/activepieces"
-    sudo chmod -R 777 "$DEPLOY_ROOT/data/activepieces"
+    sudo chmod -R 700 "$DEPLOY_ROOT/data/activepieces"
     sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
     # Fix for Postgres 18+ data directory structure
-    if sudo test -d "$DEPLOY_ROOT/data/postgres/data"; then
-        # Ensure container is stopped before moving files
-        sudo docker compose -f "$DEPLOY_ROOT/db/docker-compose.yml" stop postgres 2>/dev/null || true
-        echo -e "${YELLOW}Converting legacy Postgres data structure to flat format...${NC}"
-        # Check current version if exists to warn about major upgrade
-        if sudo test -f "$DEPLOY_ROOT/data/postgres/data/PG_VERSION"; then
-            OLD_VER=$(sudo cat "$DEPLOY_ROOT/data/postgres/data/PG_VERSION")
-            if [ "$OLD_VER" != "18" ]; then
-                echo -e "${YELLOW}WARNING: Existing Postgres data version is $OLD_VER. Upgrading to 18 requires a dump/restore or pg_upgrade.${NC}"
-                echo -e "${YELLOW}This script will move your files to the new structure, but Postgres 18 may fail to start.${NC}"
-            fi
-        fi
-        # Move all files (including hidden ones) to the parent directory
-        if sudo bash -c "shopt -s dotglob; mv \"$DEPLOY_ROOT/data/postgres/data\"/* \"$DEPLOY_ROOT/data/postgres/\" 2>/dev/null"; then
-            sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
-            sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres"
-            echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
-        else
-            # If mv failed, it might be because the directory was already empty or move failed.
-            # Check if directory still has files
-            if [ -n "$(sudo ls -A "$DEPLOY_ROOT/data/postgres/data" 2>/dev/null)" ]; then
-                echo -e "${RED}Failed to move Postgres data files. Manual intervention may be required.${NC}"
-            else
-                sudo rm -rf "$DEPLOY_ROOT/data/postgres/data"
-            fi
-        fi
-    fi
+    source "$DEPLOY_ROOT/scripts/utils.sh"
+    migrate_postgres "$DEPLOY_ROOT"
 
 }
 
@@ -451,7 +426,9 @@ EOF
         TEMPLATE="nginx_ports_http.conf"
         [ "$ACCESS_CHOICE" == "1" ] && TEMPLATE="nginx_subdomains_http.conf"
     fi
+    sudo mkdir -p "$DEPLOY_ROOT/proxy/conf.d"
     sudo cp "$DEPLOY_ROOT/templates/$TEMPLATE" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
+    sudo cp "$DEPLOY_ROOT/templates/nginx_security_headers.conf" "$DEPLOY_ROOT/proxy/conf.d/security_headers.conf"
     replace_token "__WEB_DOMAIN__" "$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
     replace_token "__DOMAIN_OR_IP__" "$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
     replace_token "__ADMINER_DOMAIN__" "db.$MAIN_DOMAIN" "$DEPLOY_ROOT/proxy/conf.d/default.conf"
@@ -553,6 +530,12 @@ phase7_final_firewall_credentials() {
     echo -e "${YELLOW}IMPORTANT: Save these credentials securely!${NC}"
     sudo "$DEPLOY_ROOT/scripts/show_credentials.sh"
     echo -e "You can retrieve them later by running: ${YELLOW}sudo $DEPLOY_ROOT/scripts/show_credentials.sh${NC}"
+
+    echo -e "\nWould you like to run a smoke test to verify all services are reachable?"
+    read -p "Run smoke test? (y/n) [y]: " run_smoke
+    if [[ ! "$run_smoke" =~ ^[Nn]$ ]]; then
+        sudo "$DEPLOY_ROOT/scripts/smoke_test.sh" "$MAIN_DOMAIN" "$PROTO" "$ACCESS_CHOICE"
+    fi
 }
 
 main() {
