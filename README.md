@@ -1,172 +1,215 @@
 # 🚀 OCI One-Click Automation & Hosting Server
 
-Welcome to your all-in-one automation and web hosting powerhouse! This repository turns a fresh **Ubuntu 24.04** server (optimized for Oracle Cloud Infrastructure) into a fully functional hub for automation, web development, and secure file storage in minutes.
+An optimized, production-ready orchestrator to transform a fresh Ubuntu 24.04 VM (specifically for Oracle Cloud Infrastructure) into a powerful self-hosted hub for automation, web development, and secure storage.
 
 ---
 
-## 🏗️ What's Inside?
-
-*   **n8n**: Powerful workflow automation.
-*   **Activepieces**: No-code automation alternative.
-*   **Huginn**: Personal agents for web monitoring.
-*   **Adminer**: Lightweight database management (MariaDB & PostgreSQL).
-*   **PHP 8.3 Webserver**: Ready for your website or custom scripts.
-*   **SFTP Access**: Secure file management on port 2222.
-*   **Automatic SSL**: Secured by Let's Encrypt (HTTPS).
-
----
-
-## 📋 Prerequisites
-
-### 1. Server Requirements
-*   **OS**: Ubuntu 24.04 (Minimal recommended).
-*   **Provider**: Optimized for **Oracle Cloud (OCI)**, but works on any VPS.
-*   **RAM**: Minimum 1GB. (The script automatically adds 4GB Swap if RAM < 2GB).
-
-### 2. DNS Setup (Do this first!)
-Point your domain to your server's IP address:
-*   **A Record**: Point `@` (or your domain) to your server's IP.
-*   **CNAME Record**: (Optional but recommended) Point `*` to your domain to allow subdomains like `n8n.yourdomain.com`.
-
-### 3. OCI Firewall (Security List)
-Open these ports in your OCI Dashboard (Ingress Rules):
-*   **TCP 80 & 443**: Standard Web/SSL.
-*   **TCP 2222**: SFTP Access.
-*   **TCP 5678, 8081, 3000, 8080**: (Required if using **Port Mode**).
+## 📑 Table of Contents
+1. [Overview of Services](#-overview-of-services)
+2. [Prerequisites & OCI Provisioning](#-prerequisites--oci-provisioning)
+3. [OCI Network Configuration (Firewall)](#-oci-network-configuration-firewall)
+4. [Cloning the Repository](#-cloning-the-repository)
+5. [Installation & Setup](#-installation--setup)
+6. [Usage Guide](#-usage-guide)
+7. [Day 2 Operations (Updates & Backups)](#-day-2-operations-updates--backups)
+8. [Troubleshooting & Debugging](#-troubleshooting--debugging)
 
 ---
 
-## 🛠️ Step 1: Installation
+## 🛠 Overview of Services
 
-Connect to your server via SSH and follow these steps.
+This setup deploys a curated stack of powerful open-source tools:
 
-### 1. Clone the Repository
-Choose one of the methods below:
+*   **n8n**: A fair-code workflow automation tool with over 400+ integrations. It allows you to build complex logic without writing code.
+*   **Activepieces**: A modern, no-code automation alternative focused on ease of use and business workflows.
+*   **Huginn**: A system for building agents that perform automated tasks for you online. They can read the web, watch for events, and take actions.
+*   **Adminer**: A lightweight, single-file database management tool for PostgreSQL and MariaDB.
+*   **PHP 8.3 Webserver**: A performance-tuned environment for hosting your own websites or custom scripts.
+*   **SFTP Storage**: Secure file access and management via a dedicated container.
 
-**Standard Clone:**
+---
+
+## 🏗 Prerequisites & OCI Provisioning
+
+This repository is optimized for **Oracle Cloud Infrastructure (OCI)** but works on any VPS running Ubuntu 24.04.
+
+### 1. Recommended OCI Instance Specs
+*   **Operating System**: `Ubuntu 24.04` or `Ubuntu 24.04 Minimal`.
+*   **Shape**:
+    *   **Always Free Compatible**: `VM.Standard.A1.Flex` (ARM-based Ampere) with at least 6GB RAM (recommended).
+    *   **Minimum**: Any shape with at least **1GB RAM**. (The script automatically configures 4GB Swap if RAM is below 2GB).
+*   **Networking**: Assign a **Public IPv4 Address**.
+
+### 2. DNS Requirements
+Before starting, point your domain to your server's IP address:
+*   **A Record**: Point your domain (e.g., `example.com`) to the server IP.
+*   **CNAME Record**: Point `*` to your domain (e.g., `*.example.com`) to support subdomains like `n8n.example.com`.
+
+---
+
+## 🔒 OCI Network Configuration (Firewall)
+
+OCI instances are protected by a Virtual Cloud Network (VCN) firewall. You **must** add Ingress Rules in the OCI Console (Networking > VCNs > Your VCN > Security Lists) to allow traffic:
+
+| Stateless | Source | IP Protocol | Source Port Range | Destination Port Range | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| No | 0.0.0.0/0 | TCP | All | 80, 443 | HTTP/HTTPS (Web Access) |
+| No | 0.0.0.0/0 | TCP | All | 22 | SSH (Remote Access) |
+| No | 0.0.0.0/0 | TCP | All | 2222 | SFTP (File Transfers) |
+| No | 0.0.0.0/0 | TCP | All | 5678, 8081, 3000, 8080 | **Port Mode Only** (Service access) |
+
+---
+
+## 📥 Cloning the Repository
+
+Connect to your VM via SSH and choose one of the following methods to clone the setup:
+
+### Method A: HTTPS (Simplest)
 ```bash
-git clone https://github.com/your-username/your-repo-name.git deploy
+git clone https://github.com/kogulan/server-setup.git deploy
 cd deploy
 ```
 
-**Clone with Personal Access Token (For Private Repos):**
+### Method B: SSH (Recommended for Devs)
 ```bash
-git clone https://<YOUR_TOKEN>@github.com/your-username/your-repo-name.git deploy
+git clone git@github.com:kogulan/server-setup.git deploy
 cd deploy
 ```
 
-### 2. Run the Setup
+### Method C: Personal Access Token (PAT)
+Required if the repository is private or for automated scripts.
+```bash
+git clone https://<YOUR_TOKEN>@github.com/kogulan/server-setup.git deploy
+cd deploy
+```
+
+### Method D: GitHub CLI (`gh`)
+```bash
+gh repo clone kogulan/server-setup deploy
+cd deploy
+```
+
+### Method E: ZIP Download (Not recommended for production)
+> ⚠️ **Warning**: This method makes it harder to use the `update.sh` script later as it lacks Git history.
+```bash
+wget https://github.com/kogulan/server-setup/archive/refs/heads/main.zip
+unzip main.zip -d deploy
+cd deploy/server-setup-main
+```
+
+---
+
+## 🚀 Installation & Setup
+
+Once cloned, run the orchestrator script:
+
 ```bash
 sudo chmod +x setup.sh
 sudo ./setup.sh
 ```
 
-**During Setup:**
-*   Enter your **Domain** and **Email**.
-*   Choose **Subdomains** (`n8n.domain.com`) or **Ports** (`domain.com:5678`).
-*   **IMPORTANT**: Save the credentials displayed at the end!
+### Setup Choices:
+1.  **Domain/IP**: Enter your domain name (e.g., `myserver.com`).
+2.  **Access Mode**:
+    *   **Subdomains**: `n8n.myserver.com`, `ap.myserver.com`, etc. (Requires CNAME record).
+    *   **Ports**: `myserver.com:5678`, `myserver.com:8081`, etc.
+3.  **SSL Choice**:
+    *   **Let's Encrypt**: Free, automatic HTTPS (Requires Port 80 open).
+    *   **Self-Signed**: Encrypted but triggers browser warnings (Use for IP-based access).
+    *   **None**: Plain HTTP (Insecure).
 
 ---
 
-## 📖 Step 2: Usage Guide
+## 📖 Usage Guide
 
-### 🚀 Accessing Your Services
-| Service | Subdomain Mode | Port Mode | Tips |
+### Service Access Table
+| Service | Subdomain Mode | Port Mode | Default Host (Internal) |
 | :--- | :--- | :--- | :--- |
-| **n8n** | `https://n8n.yourdomain.com` | `https://yourdomain.com:5678` | First visitor becomes Admin. |
-| **Activepieces** | `https://ap.yourdomain.com` | `https://yourdomain.com:8081` | First visitor becomes Admin. |
-| **Huginn** | `https://huginn.yourdomain.com` | `https://yourdomain.com:3000` | Requires Invitation Code (see below). |
-| **Adminer** | `https://db.yourdomain.com` | `https://yourdomain.com:8080` | Use `postgres-db` or `mariadb-db` as host. |
-| **Website** | `https://yourdomain.com` | `https://yourdomain.com` | Managed via SFTP. |
+| **Main Website** | `https://yourdomain.com` | `https://yourdomain.com` | - |
+| **n8n** | `https://n8n.yourdomain.com` | `https://yourdomain.com:5678` | `n8n` |
+| **Activepieces** | `https://ap.yourdomain.com` | `https://yourdomain.com:8081` | `activepieces` |
+| **Huginn** | `https://huginn.yourdomain.com` | `https://yourdomain.com:3000` | `huginn` |
+| **Adminer** | `https://db.yourdomain.com` | `https://yourdomain.com:8080` | `adminer` |
 
-### 📁 File Management (SFTP)
-Use **FileZilla** to manage your website files and general storage.
+### File Management (SFTP)
+Connect using **FileZilla** or WinSCP:
+*   **Host**: Your Domain or IP
+*   **Port**: `2222`
+*   **Users**:
+    *   `webuser`: Manages files in `/web_root` (Your website).
+    *   `filesuser`: General secure storage.
 
-1.  **Protocol**: `SFTP - SSH File Transfer Protocol`.
-2.  **Host**: Your Domain or IP.
-3.  **Port**: `2222`.
-4.  **Logon Type**: `Normal`.
-5.  **Users**:
-    - `webuser`: For website files (located in `/web_root`).
-    - `filesuser`: For general storage.
-6.  **Password**: See "Forgot Passwords" section below.
-
-### 🌐 Website File Management
-Your website's files are served from `/opt/deploy/data/web_root/`.
-- Upload your `index.php` or `index.html` here using the `webuser` SFTP account.
-- The webserver supports PHP 8.3 and is connected to MariaDB and PostgreSQL.
+### Database Management
+Login to **Adminer** using the credentials provided at the end of setup.
+*   To manage the Website DB: Use System `MySQL`, Server `mariadb-db`.
+*   To manage Automation DBs: Use System `PostgreSQL`, Server `postgres-db`.
 
 ---
 
-## 🔄 Step 3: Update & Upgrade
+## 🔄 Day 2 Operations (Updates & Backups)
 
-To keep your server secure and your tools up to date, run the one-click update script:
-
+### 1. Update Everything
+Run the update script to backup data, update the OS, and pull the latest Docker images:
 ```bash
 cd /opt/deploy
 sudo ./update.sh
 ```
 
-**What this script does:**
-1.  **Backs up** all your data (DBs and Files).
-2.  **Updates** the Ubuntu OS packages.
-3.  **Pulls** the latest Docker images for all services.
-4.  **Restarts** services safely to apply updates.
-5.  **Reminds** you if a system reboot is needed.
-
----
-
-## 💾 Step 4: Backup & Restore
-
-### How Backups Work
-- **Automatic**: Runs every Sunday at 2:00 AM via Cron.
-- **Manual**: Run `sudo /opt/deploy/scripts/backup.sh`.
-- **Contents**: Full SQL dumps of MariaDB & Postgres, plus a compressed archive of all files.
-- **Location**: `/opt/deploy/backups/`.
-
-### How to Restore
-Replace `YYYY-MM-DD` with your backup date.
-
-#### 1. Restore MariaDB (Web App DB)
+### 2. Manual Backups
+Backups are scheduled every Sunday at 2 AM, but you can trigger one manually:
 ```bash
-gunzip -c /opt/deploy/backups/mariadb_full_YYYY-MM-DD.sql.gz | sudo docker exec -i mariadb-db sh -c 'export MYSQL_PWD="$MARIADB_ROOT_PASSWORD"; mariadb -u root'
+sudo /opt/deploy/scripts/backup.sh
 ```
+Files are stored in `/opt/deploy/backups/`.
 
-#### 2. Restore PostgreSQL (n8n/AP/Huginn)
-```bash
-gunzip -c /opt/deploy/backups/postgres_full_YYYY-MM-DD.sql.gz | sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -U admin postgres'
-```
-
-#### 3. Restore Files
-```bash
-sudo tar -xzf /opt/deploy/backups/files_YYYY-MM-DD.tar.gz -C /opt/deploy/data/
-```
-
----
-
-## ❓ Troubleshooting
-
-### 1. "Connection Lost" error in n8n
-If you see "Connection Lost" or "Lost connection to server" in n8n:
-- **Check `.env`**: Ensure `N8N_WEBHOOK_URL` in `/opt/deploy/automation/.env` includes your port (if in Port Mode).
-- **Check Docker**: Ensure `N8N_EDITOR_BASE_URL` and `N8N_ALLOWED_ORIGINS` match your access URL.
-- **Nginx**: Ensure WebSocket support is enabled in your Nginx config (the setup script handles this by default).
-
-### 2. Can't access services (Timeout)
-- **Firewall**: Check your OCI Ingress Rules and `sudo ufw status`.
-- **DNS**: Ensure your domain points to the correct IP (`ping yourdomain.com`).
-
-### 3. SSL (HTTPS) is not working
-- Ensure port 80 is open and not used by another service.
-- Re-run SSL setup: `sudo /opt/deploy/scripts/ssl_setup.sh letsencrypt yourdomain.com your@email.com 1`.
-
-### 4. Forgot Passwords
-Run this to see all credentials:
+### 3. Retrieve Credentials
+If you forget your passwords, run:
 ```bash
 sudo /opt/deploy/scripts/show_credentials.sh
 ```
 
 ---
 
+## ❓ Troubleshooting & Debugging
+
+### Common Issues
+*   **Connection Lost (n8n)**: Often caused by incorrect `N8N_WEBHOOK_URL` in Port Mode. Check `/opt/deploy/automation/.env`.
+*   **SSL Failure**: Ensure Port 80 is open and DNS is fully propagated. Check logs: `cat /var/log/letsencrypt/letsencrypt.log`.
+*   **Timeout/Refused**: Check OCI Ingress Rules first, then check local firewall: `sudo ufw status`.
+
+### Technical Debugging Commands
+If a service is down, use these commands to find the cause:
+
+**1. Check Container Logs:**
+```bash
+sudo docker logs n8n
+sudo docker logs mariadb-db
+```
+
+**2. Check Service Status:**
+```bash
+sudo docker compose -f /opt/deploy/automation/docker-compose.yml ps
+```
+
+**3. Check Disk Space:**
+```bash
+df -h
+```
+
+**4. Monitor System Resources:**
+```bash
+htop  # (Install with sudo apt install htop)
+```
+
+**5. Check for Port Conflicts:**
+```bash
+sudo lsof -i :80
+```
+
+---
+
 ## 🛡️ Security Note
-Keep your system updated regularly using `./update.sh`. Never share your credentials. For OCI users, always use the dedicated SFTP port (2222) for file transfers.
+This setup implements basic hardening, including restricted directory permissions (`700`) and security headers. However, always ensure your VM is updated and avoid exposing database ports directly to the internet in OCI.
+
+---
+*Created with ❤️ for the OCI Community.*
