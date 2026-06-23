@@ -72,6 +72,15 @@ validate_timezone() {
     fi
 }
 
+sanitize_domain() {
+    local domain="$1"
+    # Remove protocol (http:// or https://)
+    domain=$(echo "$domain" | sed -E 's|^https?://||i')
+    # Remove trailing slash
+    domain="${domain%/}"
+    echo "$domain"
+}
+
 mariadb_can_auth_with_password() {
     local password="$1"
     # Pass password via STDIN to a subshell inside the container to avoid process list exposure
@@ -217,6 +226,13 @@ phase1_load_config() {
     [ -f "$CONFIG_FILE" ] && set -a && source "$CONFIG_FILE" && set +a || sudo touch "$CONFIG_FILE"
 
     prompt_env MAIN_DOMAIN "Enter your main Domain or IP (e.g., yourdomain.com): "
+    # Ensure MAIN_DOMAIN is clean even if loaded from file or prompted
+    CLEAN_DOMAIN=$(sanitize_domain "$MAIN_DOMAIN")
+    if [ "$CLEAN_DOMAIN" != "$MAIN_DOMAIN" ]; then
+        MAIN_DOMAIN="$CLEAN_DOMAIN"
+        upsert_env MAIN_DOMAIN "$MAIN_DOMAIN" "$CONFIG_FILE"
+    fi
+
     prompt_env ADMIN_EMAIL "Enter Admin email (for SSL notifications): "
     prompt_env ACCESS_CHOICE "Choice [1-2]: " "\nHow would you like to access your tools?\n1) Subdomains (n8n.domain.com, ap.domain.com, etc.)\n2) Ports (domain.com:5678, domain.com:8081, etc.)"
     prompt_env SSL_CHOICE "Choice [1-3]: " "\nSSL Certificate Setup:\n1) Let's Encrypt (Requires Port 80 open & Domain pointed to IP)\n2) Self-Signed (Works for IP-based access)\n3) None (HTTP Only - insecure)"

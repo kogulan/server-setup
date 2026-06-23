@@ -2,8 +2,17 @@
 
 # Script to handle SSL setup based on user choice
 
+sanitize_domain() {
+    local domain="$1"
+    # Remove protocol (http:// or https://)
+    domain=$(echo "$domain" | sed -E 's|^https?://||i')
+    # Remove trailing slash
+    domain="${domain%/}"
+    echo "$domain"
+}
+
 MODE=$1 # selfsigned, letsencrypt, or none
-DOMAIN=$2
+DOMAIN=$(sanitize_domain "$2")
 EMAIL=$3
 ACCESS_MODE=$4 # 1 for subdomains, 2 for ports
 
