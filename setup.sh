@@ -162,7 +162,7 @@ ensure_secret() {
 psql_admin() {
     # Use internal container environment variable for postgres password
     # Arguments are passed to psql, but SQL should preferably be passed via STDIN for security
-    sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -v ON_ERROR_STOP=1 -U admin "$@"' -- psql "$@"
+    sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -v ON_ERROR_STOP=1 -U admin "$@"' psql "$@"
 }
 ensure_postgres_app_db() {
     local db_name="$1"
@@ -365,7 +365,12 @@ EOF
     sudo chown -R 1000:1000 "$DEPLOY_ROOT/data/n8n"
     sudo chown -R root:root "$DEPLOY_ROOT/data/activepieces"
     sudo chmod -R 700 "$DEPLOY_ROOT/data/activepieces"
+
+    # Ensure database directories have correct permissions and ownership
+    # This prevents 'Permission denied' if Docker created them as root during a failed run
+    sudo mkdir -p "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
     sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
+    sudo chmod -R 700 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
     # Fix for Postgres 18+ data directory structure
     source "$DEPLOY_ROOT/scripts/utils.sh"
@@ -473,7 +478,7 @@ phase6_start_services_db_init() {
     # Phase 6: Service Start & DB Setup
     # -----------------------------------------------------------------------------
     echo -e "${YELLOW}[Step 6] Initializing containerized services...${NC}"
-    sudo docker network create deploy-network || true
+    sudo docker network inspect deploy-network >/dev/null 2>&1 || sudo docker network create deploy-network
     cd "$DEPLOY_ROOT/db" && sudo docker compose up -d
 
     echo -e "Waiting for databases (up to 2 mins)..."
