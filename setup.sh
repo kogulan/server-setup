@@ -72,6 +72,15 @@ validate_timezone() {
     fi
 }
 
+sanitize_domain() {
+    local domain="$1"
+    # Remove protocol (http:// or https://)
+    domain=$(echo "$domain" | sed -E 's|^https?://||i')
+    # Remove trailing slash
+    domain="${domain%/}"
+    echo "$domain"
+}
+
 mariadb_can_auth_with_password() {
     local password="$1"
     # Pass password via STDIN to a subshell inside the container to avoid process list exposure
@@ -153,7 +162,7 @@ ensure_secret() {
 psql_admin() {
     # Use internal container environment variable for postgres password
     # Arguments are passed to psql, but SQL should preferably be passed via STDIN for security
-    sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -v ON_ERROR_STOP=1 -U admin "$@"' -- psql "$@"
+    sudo docker exec -i postgres-db sh -c 'export PGPASSWORD="$POSTGRES_PASSWORD"; psql -v ON_ERROR_STOP=1 -U admin "$@"' psql "$@"
 }
 ensure_postgres_app_db() {
     local db_name="$1"
@@ -217,6 +226,13 @@ phase1_load_config() {
     [ -f "$CONFIG_FILE" ] && set -a && source "$CONFIG_FILE" && set +a || sudo touch "$CONFIG_FILE"
 
     prompt_env MAIN_DOMAIN "Enter your main Domain or IP (e.g., yourdomain.com): "
+    # Ensure MAIN_DOMAIN is clean even if loaded from file or prompted
+    CLEAN_DOMAIN=$(sanitize_domain "$MAIN_DOMAIN")
+    if [ "$CLEAN_DOMAIN" != "$MAIN_DOMAIN" ]; then
+        MAIN_DOMAIN="$CLEAN_DOMAIN"
+        upsert_env MAIN_DOMAIN "$MAIN_DOMAIN" "$CONFIG_FILE"
+    fi
+
     prompt_env ADMIN_EMAIL "Enter Admin email (for SSL notifications): "
     prompt_env ACCESS_CHOICE "Choice [1-2]: " "\nHow would you like to access your tools?\n1) Subdomains (n8n.domain.com, ap.domain.com, etc.)\n2) Ports (domain.com:5678, domain.com:8081, etc.)"
     prompt_env SSL_CHOICE "Choice [1-3]: " "\nSSL Certificate Setup:\n1) Let's Encrypt (Requires Port 80 open & Domain pointed to IP)\n2) Self-Signed (Works for IP-based access)\n3) None (HTTP Only - insecure)"
@@ -349,7 +365,12 @@ EOF
     sudo chown -R 1000:1000 "$DEPLOY_ROOT/data/n8n"
     sudo chown -R root:root "$DEPLOY_ROOT/data/activepieces"
     sudo chmod -R 700 "$DEPLOY_ROOT/data/activepieces"
+
+    # Ensure database directories have correct permissions and ownership
+    # This prevents 'Permission denied' if Docker created them as root during a failed run
+    sudo mkdir -p "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
     sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
+    sudo chmod -R 700 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
     # Fix for Postgres 18+ data directory structure
     source "$DEPLOY_ROOT/scripts/utils.sh"
@@ -457,7 +478,7 @@ phase6_start_services_db_init() {
     # Phase 6: Service Start & DB Setup
     # -----------------------------------------------------------------------------
     echo -e "${YELLOW}[Step 6] Initializing containerized services...${NC}"
-    sudo docker network create deploy-network || true
+    sudo docker network inspect deploy-network >/dev/null 2>&1 || sudo docker network create deploy-network
     cd "$DEPLOY_ROOT/db" && sudo docker compose up -d
 
     echo -e "Waiting for databases (up to 2 mins)..."
