@@ -140,7 +140,7 @@ else
     echo -e "  [FAIL] Legacy data directory still exists"
     FAILED=$((FAILED + 1))
 fi
-assert_grep "sudo chown -R 999:999 $DEPLOY_ROOT/data/postgres" "$COMMAND_LOG" "Chown called after migration"
+assert_grep "sudo chown -R 70:70 $DEPLOY_ROOT/data/postgres" "$COMMAND_LOG" "Chown called after migration"
 
 # --- Test Case 3: Missing Backup Script ---
 echo -e "\nTest Case 3: Missing Backup Script"

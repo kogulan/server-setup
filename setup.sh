@@ -369,7 +369,9 @@ EOF
     # Ensure database directories have correct permissions and ownership
     # This prevents 'Permission denied' if Docker created them as root during a failed run
     sudo mkdir -p "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
-    sudo chown -R 999:999 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
+    # Postgres Alpine uses 70:70, MariaDB uses 999:999
+    sudo chown -R 70:70 "$DEPLOY_ROOT/data/postgres"
+    sudo chown -R 999:999 "$DEPLOY_ROOT/data/mariadb"
     sudo chmod -R 700 "$DEPLOY_ROOT/data/postgres" "$DEPLOY_ROOT/data/mariadb"
 
     # Fix for Postgres 18+ data directory structure
