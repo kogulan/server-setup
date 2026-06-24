@@ -36,7 +36,7 @@ migrate_postgres() {
         # Move all files (including hidden ones) to the parent directory
         if sudo bash -c "shopt -s dotglob; mv \"$postgres_data_dir/data\"/* \"$postgres_data_dir/\" 2>/dev/null"; then
             sudo rm -rf "$postgres_data_dir/data"
-            sudo chown -R 999:999 "$postgres_data_dir"
+            sudo chown -R 70:70 "$postgres_data_dir"
             echo -e "${GREEN}Postgres data structure conversion complete.${NC}"
         else
             # If mv failed, it might be because the directory was already empty or move failed.
