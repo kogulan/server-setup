@@ -25,7 +25,7 @@ main() {
     fi
 
     echo "Backing up files..."
-    if ! tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" . --exclude="postgres" --exclude="mariadb"; then
+    if ! tar -czf "$BACKUP_DIR/files_$DATE.tar.gz" -C "$DATA_DIR" --exclude="postgres" --exclude="mariadb" .; then
         echo "File backup failed!"
         return 1
     fi
