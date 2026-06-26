@@ -88,7 +88,7 @@ assert_grep "docker exec postgres-db" "$COMMAND_LOG" "PostgreSQL backup command 
 assert_grep "pg_dumpall -U admin" "$COMMAND_LOG" "pg_dumpall called"
 assert_grep "docker exec mariadb-db" "$COMMAND_LOG" "MariaDB backup command called"
 assert_grep "mariadb-dump -u root --all-databases" "$COMMAND_LOG" "mariadb-dump called"
-assert_grep "tar -czf $BACKUP_DIR/files_2023-10-27_120000.tar.gz -C $DATA_DIR . --exclude=postgres --exclude=mariadb" "$COMMAND_LOG" "Tar command called with correct arguments"
+assert_grep "tar -czf $BACKUP_DIR/files_2023-10-27_120000.tar.gz -C $DATA_DIR --exclude=postgres --exclude=mariadb ." "$COMMAND_LOG" "Tar command called with correct arguments"
 assert_grep "find $BACKUP_DIR -type f -mtime +7 -delete" "$COMMAND_LOG" "Cleanup command called"
 
 # Check if output files would have been created (since we mocked gzip to cat)
